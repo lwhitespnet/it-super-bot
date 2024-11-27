@@ -6,6 +6,7 @@ from google.oauth2 import id_token
 from google.auth.transport import requests
 from google_auth_oauthlib.flow import Flow
 import logging
+from pprint import pformat
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -41,11 +42,18 @@ flow = Flow.from_client_config(
 flow.redirect_uri = REDIRECT_URI
 
 def handle_oauth_callback():
+    st.write("Starting OAuth callback...")
     try:
-        code = st.experimental_get_query_params().get('code', [None])[0]
+        query_params = st.experimental_get_query_params()
+        st.write(f"Query parameters: {pformat(query_params)}")
+        
+        code = query_params.get('code', [None])[0]
         st.write(f"Auth code present: {bool(code)}")
+        if code:
+            st.write(f"Code length: {len(code)}")
         
         if not code:
+            st.write("No auth code found")
             return False
             
         st.write("Attempting to fetch token...")    
@@ -58,6 +66,7 @@ def handle_oauth_callback():
             requests.Request(),
             GOOGLE_CLIENT_ID
         )
+        st.write(f"Token info: {pformat(id_info)}")
         
         if id_info.get('hd') != 's-p.net':
             st.error("Please use your Sight Partners email address")
@@ -68,7 +77,10 @@ def handle_oauth_callback():
         return True
         
     except Exception as e:
-        st.error(f"Authentication error: {str(e)}\nType: {type(e)}\nFull details: {e.__dict__}")
+        st.error("=== Authentication Error ===")
+        st.error(f"Error type: {type(e)}")
+        st.error(f"Error message: {str(e)}")
+        st.error(f"Error details: {e.__dict__}")
         return False
 
 def main():
