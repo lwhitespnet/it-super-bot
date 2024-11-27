@@ -70,6 +70,7 @@ def handle_oauth_callback():
         return True
         
     except Exception as e:
+    	logger.error(f"Full error details: {str(e)}, Type: {type(e)}")
         logger.error(f"Authentication error: {str(e)}")
         st.error(f"Authentication failed: {str(e)}")
         return False
