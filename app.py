@@ -8,6 +8,9 @@ from google_auth_oauthlib.flow import Flow
 import logging
 from pprint import pformat
 
+# Near top of app.py
+VERSION = "1.0.1"  # Increment this
+
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -48,6 +51,7 @@ def handle_oauth_callback():
         st.write(f"Query parameters: {pformat(query_params)}")
         
         code = query_params.get('code', [None])[0]
+        st.write(f"Version: {VERSION}")
         st.write(f"Auth code present: {bool(code)}")
         if code:
             st.write(f"Code length: {len(code)}")
