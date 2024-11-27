@@ -5,7 +5,11 @@ from dotenv import load_dotenv
 from google.oauth2 import id_token
 from google.auth.transport import requests
 from google_auth_oauthlib.flow import Flow
-from pathlib import Path
+import logging
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
@@ -39,27 +43,34 @@ flow.redirect_uri = REDIRECT_URI
 def handle_oauth_callback():
     try:
         code = st.experimental_get_query_params().get('code', [None])[0]
+        logger.info(f"Received auth code: {bool(code)}")
+        
         if not code:
             return False
             
+        logger.info("Fetching token...")    
         flow.fetch_token(code=code)
         credentials = flow.credentials
         
+        logger.info("Verifying token...")
         id_info = id_token.verify_oauth2_token(
             credentials.id_token,
             requests.Request(),
             GOOGLE_CLIENT_ID
         )
         
+        logger.info(f"Domain check: {id_info.get('hd')}")
         if id_info.get('hd') != 's-p.net':
             st.error("Please use your Sight Partners email address")
             return False
             
         st.session_state.authenticated = True
         st.session_state.user_email = id_info.get('email')
+        logger.info(f"Authentication successful for: {id_info.get('email')}")
         return True
         
     except Exception as e:
+        logger.error(f"Authentication error: {str(e)}")
         st.error(f"Authentication failed: {str(e)}")
         return False
 
