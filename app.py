@@ -4,9 +4,9 @@ import os
 from dotenv import load_dotenv
 from google.oauth2 import id_token
 from google.auth.transport import requests
-from google.auth.transport.requests import Request
-import json
+from google_auth_oauthlib.flow import Flow
 from pathlib import Path
+import json
 
 # Load environment variables
 load_dotenv()
@@ -18,23 +18,66 @@ if 'authenticated' not in st.session_state:
 if 'user_email' not in st.session_state:
     st.session_state.user_email = None
 
+# Google OAuth configuration
+GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID')
+GOOGLE_CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET')
+REDIRECT_URI = 'https://it-super-bot.streamlit.app'  # Your Streamlit app URL
+
+# OAuth flow configuration
+flow = Flow.from_client_config(
+    {
+        "web": {
+            "client_id": GOOGLE_CLIENT_ID,
+            "client_secret": GOOGLE_CLIENT_SECRET,
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "redirect_uris": [REDIRECT_URI]
+        }
+    },
+    scopes=['openid', 'email', 'profile']
+)
+
 # Authentication function
 def authenticate_user(token):
     try:
-        # Specify the CLIENT_ID from Google Cloud Console
         idinfo = id_token.verify_oauth2_token(
             token, 
             requests.Request(), 
-            os.getenv('GOOGLE_CLIENT_ID')
+            GOOGLE_CLIENT_ID
         )
 
-        # Verify domain
-        if idinfo['hd'] != 's-p.net':  # Replace with your domain
+        if idinfo['hd'] != 's-p.net':
             return False, None
 
         return True, idinfo['email']
     except:
         return False, None
+
+def handle_oauth_callback():
+    try:
+        # Get authorization code from URL parameters
+        code = st.experimental_get_query_params().get('code', [None])[0]
+        
+        if code:
+            # Exchange code for tokens
+            flow.fetch_token(code=code)
+            credentials = flow.credentials
+            
+            # Get user info from ID token
+            id_info = id_token.verify_oauth2_token(
+                credentials.id_token,
+                requests.Request(),
+                GOOGLE_CLIENT_ID
+            )
+            
+            # Verify domain and set session state
+            if id_info.get('hd') == 's-p.net':
+                st.session_state.authenticated = True
+                st.session_state.user_email = id_info.get('email')
+                return True
+    except Exception as e:
+        st.error(f"Authentication failed: {str(e)}")
+    return False
 
 # Main app logic
 def main():
@@ -93,10 +136,14 @@ def main():
 # App entry point
 if not st.session_state.authenticated:
     st.write("Please sign in with your Sight Partners Google account")
-    # Add your Google Sign-In button here
+    
+    # Check for OAuth callback
+    if handle_oauth_callback():
+        st.rerun()
+    
+    # Generate OAuth URL and create sign-in button
+    auth_url, _ = flow.authorization_url(prompt='consent')
     if st.button("Sign in with Google"):
-        # Redirect to Google OAuth flow
-        # This is a placeholder - we'll add the actual OAuth flow next
-        pass
+        st.markdown(f'<meta http-equiv="refresh" content="0;url={auth_url}">', unsafe_allow_html=True)
 else:
     main()
