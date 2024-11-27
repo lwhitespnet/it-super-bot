@@ -140,8 +140,12 @@ if not st.session_state.authenticated:
     if handle_oauth_callback():
         st.rerun()
     
-    auth_url, _ = flow.authorization_url(prompt='consent')
+    auth_url, _ = flow.authorization_url(
+        prompt='consent',
+        access_type='offline',
+        include_granted_scopes='true'
+    )
     if st.button("Sign in with Google"):
-        st.markdown(f'<meta http-equiv="refresh" content="0;url={auth_url}">', unsafe_allow_html=True)
+        st.redirect(auth_url)
 else:
     main()
