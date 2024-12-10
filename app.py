@@ -8,9 +8,11 @@ from google_auth_oauthlib.flow import Flow
 import logging
 from pprint import pformat
 
-# Enable Debugging
-DEBUG = True
+# Load environment variables
+load_dotenv()
 
+# Debugging
+DEBUG = True
 if DEBUG:
     logging.basicConfig(level=logging.DEBUG)
     logging.getLogger("google_auth_oauthlib").setLevel(logging.DEBUG)
@@ -19,31 +21,27 @@ if DEBUG:
 else:
     logging.basicConfig(level=logging.INFO)
 
-# Load environment variables
-load_dotenv()
-
-# Determine if running locally or on Streamlit Cloud
-if os.getenv("STREAMLIT_CLOUD") == "true":  # Streamlit Cloud sets this env var
-    REDIRECT_URI = "https://your-streamlit-app-name.streamlit.app"
+# Determine Redirect URI
+if os.getenv("STREAMLIT_CLOUD") == "true":  # For deployment on Streamlit Cloud
+    REDIRECT_URI = "https://it-super-bot.streamlit.app/_stcore/oauth-callback"
 else:
     REDIRECT_URI = "http://localhost:8501"
 
-# Configuration
+# Google OAuth Configuration
 GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID')
 GOOGLE_CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET')
 
-# Session state initialization
-def initialize_session():
-    if 'authenticated' not in st.session_state:
-        st.session_state.authenticated = False
-    if 'user_email' not in st.session_state:
-        st.session_state.user_email = None
-    if 'oauth_state' not in st.session_state:
-        st.session_state.oauth_state = None
+# Initialize session state
+if 'authenticated' not in st.session_state:
+    st.session_state.authenticated = False
+if 'user_email' not in st.session_state:
+    st.session_state.user_email = None
+if 'oauth_state' not in st.session_state:
+    st.session_state.oauth_state = None
+if 'query_params' not in st.session_state:
+    st.session_state.query_params = {}
 
-initialize_session()
-
-# OAuth flow configuration
+# OAuth Flow Setup
 flow = Flow.from_client_config(
     {
         "web": {
@@ -60,22 +58,22 @@ flow.redirect_uri = REDIRECT_URI
 
 def handle_oauth_callback():
     try:
-        # Get the query parameters from the callback URL
-        query_params = st.query_params
+        # Use the query parameters captured in session state
+        query_params = st.session_state.query_params
         logging.debug(f"Query parameters received: {query_params}")
 
-        # Extract state and authorization code
+        # Extract `state` and `code`
         received_state = query_params.get('state', [None])[0]
         expected_state = st.session_state.get('oauth_state')
         code = query_params.get('code', [None])[0]
         logging.debug(f"State received: {received_state}, State expected: {expected_state}")
         logging.debug(f"Authorization code received: {code}")
 
-        # Validate the state parameter
+        # Validate state
         if received_state != expected_state:
             raise ValueError("State parameter mismatch!")
 
-        # Validate the authorization code
+        # Validate authorization code
         if not code:
             raise ValueError("Authorization code is missing!")
 
@@ -92,7 +90,7 @@ def handle_oauth_callback():
         )
         logging.debug(f"ID token info: {pformat(id_info)}")
 
-        # Check if the user is from the Sight Partners domain
+        # Restrict access to specific domain
         if id_info.get('hd') != 's-p.net':
             st.error("Access restricted to Sight Partners users.")
             return False
@@ -116,17 +114,7 @@ def main():
         st.error("Failed to initialize OpenAI. Check your API key.")
         return
 
-    # Initialize assistant and thread
-    if 'assistant' not in st.session_state:
-        st.session_state.assistant = client.beta.assistants.create(
-            name="IT Super Bot",
-            instructions="You are an IT support assistant for Sight Partners. You help manage and retrieve IT-related information and documentation.",
-            model="gpt-4-turbo",
-        )
-    if 'thread' not in st.session_state:
-        st.session_state.thread = client.beta.threads.create()
-
-    # Display IT assistant chat interface
+    # IT Assistant Main Interface
     st.title("IT Super Bot")
     st.write(f"Welcome, {st.session_state.user_email}")
 
@@ -150,7 +138,7 @@ def main():
                 run_id=run.id
             )
 
-        # Display assistant's responses
+        # Display messages
         messages = client.beta.threads.messages.list(
             thread_id=st.session_state.thread.id
         )
@@ -159,20 +147,40 @@ def main():
             content = message.content[0].text.value
             st.chat_message(role).write(content)
 
-# App entry point
+# Capture query parameters at the start
+if not st.session_state.query_params:
+    # Log the full URL for debugging
+    logging.debug(f"App URL: {st.query_params}")
+
+    # Capture query parameters if present
+    st.session_state.query_params = st.query_params
+    logging.debug(f"Captured query parameters: {st.session_state.query_params}")
+
+    # Check if `state` and `code` exist in the captured query parameters
+    if 'state' in st.session_state.query_params and 'code' in st.session_state.query_params:
+        logging.debug("State and code parameters received.")
+    else:
+        logging.debug("State or code parameters missing in query.")
+
+# Entry Point
 if not st.session_state.authenticated:
+    logging.debug("User not authenticated. Showing login screen.")
     st.write("Sign in with your Sight Partners Google account.")
     
     if handle_oauth_callback():
+        logging.debug("OAuth callback handled successfully. Rerunning app...")
         st.rerun()
 
+    # Generate OAuth URL
     auth_url, state = flow.authorization_url(prompt='consent')
     st.session_state.oauth_state = state  # Save state for validation
     logging.debug(f"Generated OAuth URL: {auth_url}")
     logging.debug(f"Generated state: {state}")
 
     if st.button("Sign in with Google"):
+        logging.debug("Sign in button clicked. Redirecting to Google...")
         js_code = f"<script>window.location.href = '{auth_url}';</script>"
         st.components.v1.html(js_code, height=0)
 else:
+    logging.debug("User authenticated. Loading IT assistant...")
     main()
