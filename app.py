@@ -26,7 +26,8 @@ load_dotenv()
 # Configuration
 GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID')
 GOOGLE_CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET')
-REDIRECT_URI = 'https://it-super-bot.streamlit.app/_stcore/oauth-callback'
+REDIRECT_URI = 'http://localhost:8501'
+# REDIRECT_URI = 'https://it-super-bot.streamlit.app/_stcore/oauth-callback'
 
 # Session state initialization
 def initialize_session():
