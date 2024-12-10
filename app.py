@@ -177,10 +177,13 @@ if not st.session_state.authenticated:
     logging.debug(f"Generated OAuth URL: {auth_url}")
     logging.debug(f"Generated state: {state}")
 
-    if st.button("Sign in with Google"):
-        logging.debug("Sign in button clicked. Redirecting to Google...")
-        js_code = f"<script>window.location.href = '{auth_url}';</script>"
-        st.components.v1.html(js_code, height=0)
+	if st.button("Sign in with Google"):
+    	logging.debug("Sign in button clicked. Redirecting to Google...")
+    	auth_url, state = flow.authorization_url(prompt='consent')
+    	st.session_state.oauth_state = state  # Save state for validation
+    	logging.debug(f"Generated auth_url: {auth_url}")  # Log the OAuth URL
+    	js_code = f"<script>window.location.href = '{auth_url}';</script>"
+    	st.components.v1.html(js_code, height=0)
 else:
     logging.debug("User authenticated. Loading IT assistant...")
     main()
