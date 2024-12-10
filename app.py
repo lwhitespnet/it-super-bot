@@ -1,3 +1,4 @@
+
 import streamlit as st
 from openai import OpenAI
 import os
@@ -9,7 +10,7 @@ import logging
 from pprint import pformat
 
 # Near top of app.py
-VERSION = "1.0.1"  # Increment this
+VERSION = "1.0.2"  # Increment this
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -23,11 +24,17 @@ GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID')
 GOOGLE_CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET')
 REDIRECT_URI = 'https://it-super-bot.streamlit.app/_stcore/oauth-callback'
 
+# Debugging flag
+DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
+
 # Session state initialization
-if 'authenticated' not in st.session_state:
-    st.session_state.authenticated = False
-if 'user_email' not in st.session_state:
-    st.session_state.user_email = None
+def initialize_session():
+    if 'authenticated' not in st.session_state:
+        st.session_state.authenticated = False
+    if 'user_email' not in st.session_state:
+        st.session_state.user_email = None
+
+initialize_session()
 
 # OAuth flow configuration
 flow = Flow.from_client_config(
@@ -48,48 +55,58 @@ def handle_oauth_callback():
     st.write("Starting OAuth callback...")
     try:
         query_params = st.experimental_get_query_params()
-        st.write(f"Query parameters: {pformat(query_params)}")
+        if DEBUG:
+            st.write(f"Query parameters: {pformat(query_params)}")
         
         code = query_params.get('code', [None])[0]
-        st.write(f"Version: {VERSION}")
-        st.write(f"Auth code present: {bool(code)}")
-        if code:
-            st.write(f"Code length: {len(code)}")
+        if DEBUG:
+            st.write(f"Version: {VERSION}")
+            st.write(f"Auth code present: {bool(code)}")
+            if code:
+                st.write(f"Code length: {len(code)}")
         
         if not code:
-            st.write("No auth code found")
+            st.error("No auth code found")
             return False
-            
-        st.write("Attempting to fetch token...")    
+
         flow.fetch_token(code=code)
         credentials = flow.credentials
-        
-        st.write("Verifying token...")
+
         id_info = id_token.verify_oauth2_token(
             credentials.id_token,
             requests.Request(),
             GOOGLE_CLIENT_ID
         )
-        st.write(f"Token info: {pformat(id_info)}")
+        if DEBUG:
+            st.write(f"Token info: {pformat(id_info)}")
         
         if id_info.get('hd') != 's-p.net':
             st.error("Please use your Sight Partners email address")
             return False
-            
+
         st.session_state.authenticated = True
         st.session_state.user_email = id_info.get('email')
         return True
-        
+
+    except KeyError as e:
+        st.error("Missing key in the authentication response.")
+        logger.error(f"KeyError: {e}")
+    except ValueError as e:
+        st.error("Invalid response during authentication.")
+        logger.error(f"ValueError: {e}")
     except Exception as e:
-        st.error("=== Authentication Error ===")
-        st.error(f"Error type: {type(e)}")
-        st.error(f"Error message: {str(e)}")
-        st.error(f"Error details: {e.__dict__}")
-        return False
+        st.error("An unexpected error occurred during authentication.")
+        logger.error(f"Unexpected error: {e}")
+    return False
 
 def main():
-    client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
-    
+    try:
+        client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+    except Exception as e:
+        st.error("Failed to initialize OpenAI API. Please check your key.")
+        logger.error(f"OpenAI initialization error: {e}")
+        return
+
     # Initialize OpenAI assistant and thread
     if 'assistant' not in st.session_state:
         st.session_state.assistant = client.beta.assistants.create(
@@ -139,13 +156,14 @@ if not st.session_state.authenticated:
     
     if handle_oauth_callback():
         st.rerun()
-    
-    auth_url, _ = flow.authorization_url(
-        prompt='consent',
-        access_type='offline',
-        include_granted_scopes='true'
-    )
+
+    auth_url, _ = flow.authorization_url(prompt='consent')
     if st.button("Sign in with Google"):
-        st.redirect(auth_url)
+        js = f"""
+        <script>
+            window.location.href = "{auth_url}";
+        </script>
+        """
+        st.components.v1.html(js)
 else:
     main()
