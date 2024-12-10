@@ -9,12 +9,16 @@ from google_auth_oauthlib.flow import Flow
 import logging
 from pprint import pformat
 
-# Near top of app.py
-VERSION = "1.0.2"  # Increment this
+# Enable Debugging
+DEBUG = True
 
-# Setup logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+if DEBUG:
+    logging.basicConfig(level=logging.DEBUG)
+    logging.getLogger("google_auth_oauthlib").setLevel(logging.DEBUG)
+    logging.getLogger("googleapiclient").setLevel(logging.DEBUG)
+    logging.debug("Debugging is enabled.")
+else:
+    logging.basicConfig(level=logging.INFO)
 
 # Load environment variables
 load_dotenv()
@@ -23,9 +27,6 @@ load_dotenv()
 GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID')
 GOOGLE_CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET')
 REDIRECT_URI = 'https://it-super-bot.streamlit.app/_stcore/oauth-callback'
-
-# Debugging flag
-DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
 
 # Session state initialization
 def initialize_session():
@@ -52,22 +53,13 @@ flow = Flow.from_client_config(
 flow.redirect_uri = REDIRECT_URI
 
 def handle_oauth_callback():
-    st.write("Starting OAuth callback...")
     try:
         query_params = st.experimental_get_query_params()
-        if DEBUG:
-            st.write(f"Query parameters: {pformat(query_params)}")
-        
+        logging.debug(f"Query parameters received: {query_params}")
         code = query_params.get('code', [None])[0]
-        if DEBUG:
-            st.write(f"Version: {VERSION}")
-            st.write(f"Auth code present: {bool(code)}")
-            if code:
-                st.write(f"Code length: {len(code)}")
-        
+        logging.debug(f"Authorization code: {code}")
         if not code:
-            st.error("No auth code found")
-            return False
+            raise ValueError("Authorization code missing!")
 
         flow.fetch_token(code=code)
         credentials = flow.credentials
@@ -77,8 +69,7 @@ def handle_oauth_callback():
             requests.Request(),
             GOOGLE_CLIENT_ID
         )
-        if DEBUG:
-            st.write(f"Token info: {pformat(id_info)}")
+        logging.debug(f"Token info: {pformat(id_info)}")
         
         if id_info.get('hd') != 's-p.net':
             st.error("Please use your Sight Partners email address")
@@ -88,23 +79,17 @@ def handle_oauth_callback():
         st.session_state.user_email = id_info.get('email')
         return True
 
-    except KeyError as e:
-        st.error("Missing key in the authentication response.")
-        logger.error(f"KeyError: {e}")
-    except ValueError as e:
-        st.error("Invalid response during authentication.")
-        logger.error(f"ValueError: {e}")
     except Exception as e:
-        st.error("An unexpected error occurred during authentication.")
-        logger.error(f"Unexpected error: {e}")
-    return False
+        logging.error(f"Error during OAuth callback: {e}")
+        st.error("Authentication failed. Please try again.")
+        return False
 
 def main():
     try:
         client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
     except Exception as e:
+        logging.error(f"OpenAI initialization error: {e}")
         st.error("Failed to initialize OpenAI API. Please check your key.")
-        logger.error(f"OpenAI initialization error: {e}")
         return
 
     # Initialize OpenAI assistant and thread
@@ -123,6 +108,7 @@ def main():
 
     # Chat interface
     if prompt := st.chat_input("Ask me anything about IT support..."):
+        logging.debug(f"User input received: {prompt}")
         message = client.beta.threads.messages.create(
             thread_id=st.session_state.thread.id,
             role="user",
@@ -158,6 +144,7 @@ if not st.session_state.authenticated:
         st.rerun()
 
     auth_url, _ = flow.authorization_url(prompt='consent')
+    logging.debug(f"Generated OAuth URL: {auth_url}")
     if st.button("Sign in with Google"):
         js = f"""
         <script>
