@@ -54,8 +54,8 @@ flow.redirect_uri = REDIRECT_URI
 
 def handle_oauth_callback():
     try:
-        query_params = st.experimental_get_query_params()
-        logging.debug(f"Query parameters received: {query_params}")
+        query_params = st.query_params  # Updated from experimental_get_query_params
+        logging.debug(f"Query parameters received in callback: {query_params}")
         code = query_params.get('code', [None])[0]
         logging.debug(f"Authorization code: {code}")
         if not code:
@@ -145,12 +145,9 @@ if not st.session_state.authenticated:
 
     auth_url, _ = flow.authorization_url(prompt='consent')
     logging.debug(f"Generated OAuth URL: {auth_url}")
+
     if st.button("Sign in with Google"):
-        js = f"""
-        <script>
-            window.location.href = "{auth_url}";
-        </script>
-        """
-        st.components.v1.html(js)
+        js_code = "<script>window.location.href = '{}';</script>".format(auth_url)
+        st.components.v1.html(js_code, height=0)
 else:
     main()
