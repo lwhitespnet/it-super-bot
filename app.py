@@ -1,6 +1,7 @@
 ##############################################
-# fresh_app_debug.py - A "from scratch" minimal approach
-# with extra debugging info in the UI
+# fresh_app_debug_no_index.py
+# A "from scratch" minimal approach
+# that doesn't slice query_params with [0]
 ##############################################
 
 import os
@@ -146,16 +147,15 @@ def run_app():
     st.write("**Debug**: Raw query_params:", query_params)
     if "code" in query_params:
         st.write("**Debug**: query_params['code'] =", query_params["code"])
-        st.write("**Debug**: query_params['code'][0] =", query_params["code"][0])
     if "state" in query_params:
         st.write("**Debug**: query_params['state'] =", query_params["state"])
-        st.write("**Debug**: query_params['state'][0] =", query_params["state"][0])
 
     if not st.session_state.authenticated:
         # If we see ?code=..., ?state=..., handle callback
         if "code" in query_params and "state" in query_params:
-            code = query_params["code"][0]
-            returned_state = query_params["state"][0]
+            # IMPORTANT: No [0] indexing here
+            code = query_params["code"]
+            returned_state = query_params["state"]
             logging.debug(f"Returned code={code}, state={returned_state}")
 
             # 1) Check if returned_state matches st.session_state.state
