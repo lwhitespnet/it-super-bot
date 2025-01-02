@@ -1,6 +1,5 @@
 ##############################################
-# app.py - Minimal Streamlit + Google OAuth + OpenAI Example
-# Returns to the BASE domain, not /_stcore
+# app.py - Fix for "State mismatch" in Streamlit
 ##############################################
 
 import streamlit as st
@@ -17,17 +16,12 @@ import openai
 # Load .env
 load_dotenv()
 
-##############################################
-# Debug / Logging
-##############################################
 logging.basicConfig(level=logging.DEBUG)
 
 ##############################################
-# Google OAuth Config
+# Constants
 ##############################################
-# Return users to the base domain only
 REDIRECT_URI = "https://it-super-bot.streamlit.app"
-
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 
@@ -58,16 +52,16 @@ if "oauth_state" not in st.session_state:
 ##############################################
 # Handle OAuth Callback
 ##############################################
-def handle_oauth_callback(code: str, state: str) -> bool:
+def handle_oauth_callback(code: str, returned_state: str) -> bool:
     """
     Exchanges code for tokens, checks domain 's-p.net',
     sets st.session_state.authenticated if good.
     """
     try:
-        # Check state
-        if state != st.session_state.oauth_state:
+        expected_state = st.session_state.oauth_state
+        if returned_state != expected_state:
             raise ValueError("State mismatch or missing.")
-
+        
         flow.fetch_token(code=code)
         credentials = flow.credentials
 
@@ -121,28 +115,35 @@ def main():
 # Run the App
 ##############################################
 def run_app():
-    # Check if code & state are in the URL
     query_params = st.query_params
     logging.debug(f"query_params: {query_params}")
 
-    # If not authed yet, handle callback or show sign-in
     if not st.session_state.authenticated:
+        # If we got ?code=... & ?state=..., handle the callback
         if "code" in query_params and "state" in query_params:
             code = query_params["code"][0]
-            state = query_params["state"][0]
-            if handle_oauth_callback(code, state):
-                st.experimental_set_query_params()
+            returned_state = query_params["state"][0]
+            if handle_oauth_callback(code, returned_state):
+                st.experimental_set_query_params()  # Clear out code/state
                 st.experimental_rerun()
             else:
-                return  # stop if it failed
+                return  # Stop if failed
 
+        # If still not authenticated, show sign-in
         if not st.session_state.authenticated:
             st.title("IT Super Bot (Login)")
             st.write("Sign in with your Sight Partners Google account.")
 
-            auth_url, current_state = flow.authorization_url(prompt="consent")
-            st.session_state.oauth_state = current_state
-            logging.debug(f"auth_url={auth_url}, state={current_state}")
+            # *** Only generate a new state if we don't have one already ***
+            if not st.session_state.oauth_state:
+                auth_url, current_state = flow.authorization_url(prompt="consent")
+                st.session_state.oauth_state = current_state
+                logging.debug(f"Generated state once = {current_state}")
+            else:
+                # We already have a state from a prior run
+                # so just reuse it for the sign-in link
+                auth_url = flow.authorization_url(prompt="consent", state=st.session_state.oauth_state)[0]
+                logging.debug(f"Reusing existing state = {st.session_state.oauth_state}")
 
             st.markdown(f"[**Sign in with Google**]({auth_url})")
             return
