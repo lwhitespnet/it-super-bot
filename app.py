@@ -1,5 +1,6 @@
 ##############################################
 # app.py - Minimal Streamlit + Google OAuth + OpenAI Example
+# Streamlit Cloud ONLY (no local fallback)
 ##############################################
 
 import streamlit as st
@@ -26,16 +27,10 @@ else:
     logging.basicConfig(level=logging.INFO)
 
 ##############################################
-# Determine if running on Streamlit Cloud
-##############################################
-if os.getenv("STREAMLIT_CLOUD") == "true":
-    REDIRECT_URI = "https://it-super-bot.streamlit.app/_stcore/oauth-callback"
-else:
-    REDIRECT_URI = "http://localhost:8501"
-
-##############################################
 # Google OAuth Config
 ##############################################
+REDIRECT_URI = "https://it-super-bot.streamlit.app/_stcore/oauth-callback"
+
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 
@@ -134,7 +129,6 @@ def main():
     st.write(f"Welcome, {st.session_state.user_email}!")
 
     # Simple chat interface
-    # In a real app, you'd adapt this to your Assistants + GPT calls
     user_input = st.text_input("Ask a question or say 'Please add...' to store info:")
     if user_input:
         # This is where you'd handle "add to KB" logic if needed
@@ -179,7 +173,7 @@ def run_app():
         logging.debug(f"Generated auth_url: {auth_url}")
         logging.debug(f"Generated state: {state}")
 
-        # Instead of JavaScript injection, let's do a manual link
+        # Instead of JS injection, let's do a manual link
         if st.button("Sign in with Google"):
             st.write("If not redirected automatically, please click the link below:")
             st.markdown(f"[Click here to sign in with Google]({auth_url})")
