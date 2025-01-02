@@ -1,6 +1,7 @@
 ##############################################
 # streamlit_app.py
 # Minimal Google OAuth example with a cache_resource store for 'state'
+# Using ONLY st.experimental_get_query_params / st.experimental_set_query_params
 ##############################################
 
 import os
@@ -118,7 +119,7 @@ def verify_domain(id_token_jwt: str):
 def main_it_app():
     openai.api_key = os.getenv("OPENAI_API_KEY")
 
-    st.title("IT Super Bot - Using a Singleton State Store")
+    st.title("IT Super Bot - Using a Singleton State Store (No st.query_params)")
     st.write("You're authenticated and from s-p.net—welcome!")
 
     user_input = st.text_input("Ask something or say 'Please add...' to store info:")
@@ -139,11 +140,12 @@ def main_it_app():
 # 5) The Entry Point
 ##############################################
 def run_app():
-    query_params = st.query_params
+    # Use st.experimental_get_query_params to avoid conflict
+    query_params = st.experimental_get_query_params()
     logging.debug(f"Query params: {query_params}")
 
     # Show debug info in the UI for clarity
-    st.write("**DEBUG**: Query params:", query_params)
+    st.write("**DEBUG**: experimental_get_query_params:", query_params)
 
     # If we see ?code=...&state=..., attempt callback
     if "code" in query_params and "state" in query_params:
@@ -164,33 +166,25 @@ def run_app():
             try:
                 token_json = exchange_code_for_token(code)
                 id_info = verify_domain(token_json["id_token"])
-                # If no exception so far, we're good
-                st.experimental_set_query_params()  # clear out the code/state
+                # If no exception so far, we set ourselves as authenticated
+                st.session_state.authenticated = True
+
+                # Clear out the code/state from the URL
+                st.experimental_set_query_params()
                 st.experimental_rerun()
             except Exception as e:
                 st.error(f"Authentication failed: {e}")
                 logging.error(f"Auth error: {e}")
                 st.stop()
 
-    # If domain check succeeded, or we haven't triggered callback yet, show main
-    # But first we confirm we have an ID token in session? Actually, we didn't store it
-    # or do st.session_state. We'll rely on "did we pass domain check"?
-    # For a real app, you'd want to store a "authenticated=True" state or a user token.
-    # We'll do a simple approach: if user hasn't triggered code & state, show sign in link.
-
-    # We'll keep it even simpler:
-    #  - If the user hasn't just come from Google, we show a sign-in link.
-    #  - Once they come back from Google and domain check passes, we just re-run without code/state in URL -> show main app.
-
-    # If we made it here and there's no code/state in URL, we must be "authenticated"
-    # or we haven't started yet. Let's do a quick session approach.
+    # If the user hasn't triggered a callback or wasn't authed yet, show sign-in
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
 
-    if st.session_state.authenticated is False:
-        # They haven't been through the domain check yet
-        st.title("IT Super Bot (Login w/ Singleton State Store)")
+    if not st.session_state.authenticated:
+        st.title("IT Super Bot (Login w/ Singleton State Store, No st.query_params)")
         st.write("Sign in with your s-p.net Google account.")
+
         auth_url = build_auth_url_and_store_state()
         st.markdown(f"[**Sign in with Google**]({auth_url})")
         st.stop()
@@ -198,11 +192,7 @@ def run_app():
         # Already authenticated
         main_it_app()
 
-# Let's do that final domain check in the same step
-# We'll store "authenticated" in st.session_state after verifying domain
-# We'll do that in verify_domain.
-
-
+# We'll re-define verify_domain here to also set authenticated = True after domain check
 def verify_domain(id_token_jwt: str):
     info = id_token.verify_oauth2_token(
         id_token_jwt,
@@ -212,10 +202,8 @@ def verify_domain(id_token_jwt: str):
     domain = info.get("hd")
     if domain != "s-p.net":
         raise ValueError(f"Access restricted to 's-p.net'. Your domain: {domain}")
-    # If no error, we set st.session_state.authenticated = True
     st.session_state.authenticated = True
     return info
-
 
 if __name__ == "__main__":
     run_app()
