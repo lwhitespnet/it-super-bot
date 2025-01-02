@@ -131,8 +131,6 @@ def main():
     # Simple chat interface
     user_input = st.text_input("Ask a question or say 'Please add...' to store info:")
     if user_input:
-        # This is where you'd handle "add to KB" logic if needed
-        # For now, we’ll just echo or do a simple GPT call
         if user_input.lower().startswith("please add"):
             st.write("Pretending to add that info to the knowledge base...")
             st.write(f"Added: {user_input[10:].strip()}")
@@ -158,11 +156,17 @@ def run_app():
         st.session_state.query_params = st.query_params
         logging.debug(f"Captured query params: {st.session_state.query_params}")
 
-    # 2. If we see 'code' and 'state' in the URL, handle callback
-    if "code" in st.session_state.query_params and "state" in st.session_state.query_params:
+    # 2. If we see 'code' and 'state' in the URL and user not yet authenticated, handle callback
+    if (
+        "code" in st.session_state.query_params
+        and "state" in st.session_state.query_params
+        and not st.session_state.authenticated
+    ):
         logging.debug("Code and state found in query params, attempting OAuth callback...")
         if handle_oauth_callback():
-            st.experimental_rerun()  # Refresh after successful login
+            # Avoid infinite loop by clearing out the query params
+            st.session_state.query_params = {}
+            st.experimental_rerun()
 
     # 3. If not authenticated, show the sign-in button
     if not st.session_state.authenticated:
@@ -173,7 +177,6 @@ def run_app():
         logging.debug(f"Generated auth_url: {auth_url}")
         logging.debug(f"Generated state: {state}")
 
-        # Instead of JS injection, let's do a manual link
         if st.button("Sign in with Google"):
             st.write("If not redirected automatically, please click the link below:")
             st.markdown(f"[Click here to sign in with Google]({auth_url})")
