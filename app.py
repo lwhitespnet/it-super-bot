@@ -1,7 +1,6 @@
 ##############################################
-# fresh_app_debug_no_index.py
-# A "from scratch" minimal approach
-# that doesn't slice query_params with [0]
+# streamlit_app.py
+# Minimal Google OAuth example with a cache_resource store for 'state'
 ##############################################
 
 import os
@@ -11,13 +10,15 @@ import logging
 import streamlit as st
 from dotenv import load_dotenv
 
-import openai
-
 import requests
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
 
-# Load environment vars
+import openai
+
+##############################################
+# Load environment variables
+##############################################
 load_dotenv()
 
 ##############################################
@@ -28,104 +29,102 @@ logging.basicConfig(level=logging.DEBUG)
 ##############################################
 # Constants
 ##############################################
-REDIRECT_URI = "https://it-super-bot.streamlit.app"  # Only the base domain
+REDIRECT_URI = "https://it-super-bot.streamlit.app"  # Use your domain here
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 
-# We'll ask for OIDC scopes
-OAUTH_SCOPES = [
-    "openid",
-    "email",
-    "profile",
-]
-
-# The Google endpoints
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 
-##############################################
-# Session State Defaults
-##############################################
-if "authenticated" not in st.session_state:
-    st.session_state.authenticated = False
-if "user_email" not in st.session_state:
-    st.session_state.user_email = None
-if "state" not in st.session_state:
-    st.session_state.state = None
+# Scopes to request from Google
+OAUTH_SCOPES = ["openid", "email", "profile"]
 
 ##############################################
-# Helper: Build the Authorization URL
+# 1) A "singleton" (cache_resource) store for valid states
 ##############################################
-def build_auth_url(client_id, redirect_uri, scopes, state):
+@st.cache_resource
+def get_state_store() -> dict:
     """
-    Manually build the Google OAuth consent screen URL
-    using the standard query params for "response_type=code".
+    Returns a dictionary that will persist as long as the app
+    isn't fully shut down or redeployed.
+    Keys: state strings
+    Values: True (or any truthy value)
     """
-    scope_str = "+".join(scopes)
-    url = (
+    return {}
+
+##############################################
+# 2) Function: Generate an auth URL manually & store the state in our dict
+##############################################
+def build_auth_url_and_store_state() -> str:
+    state_store = get_state_store()
+
+    # Generate random state
+    random_state = secrets.token_urlsafe(16)
+
+    # Put it in our persistent dictionary
+    state_store[random_state] = True
+
+    # Build the OAuth URL manually
+    scope_str = "+".join(OAUTH_SCOPES)
+    auth_url = (
         f"{GOOGLE_AUTH_URL}"
-        f"?client_id={client_id}"
-        f"&redirect_uri={redirect_uri}"
+        f"?client_id={GOOGLE_CLIENT_ID}"
+        f"&redirect_uri={REDIRECT_URI}"
         f"&scope={scope_str}"
         f"&response_type=code"
-        f"&state={state}"
+        f"&state={random_state}"
         f"&prompt=consent"
         f"&access_type=offline"
     )
-    return url
+    logging.debug(f"Generated new state={random_state} and stored in dict.")
+    return auth_url
 
 ##############################################
-# Helper: Exchange Auth Code for Tokens
+# 3) Function: Exchange code for token + domain check
 ##############################################
-def exchange_code_for_token(code, client_id, client_secret, redirect_uri):
+def exchange_code_for_token(code: str) -> dict:
     """
     Manually exchange the 'code' for tokens by POSTing to Google.
     """
     token_data = {
         "code": code,
-        "client_id": client_id,
-        "client_secret": client_secret,
-        "redirect_uri": redirect_uri,
+        "client_id": GOOGLE_CLIENT_ID,
+        "client_secret": GOOGLE_CLIENT_SECRET,
+        "redirect_uri": REDIRECT_URI,
         "grant_type": "authorization_code",
     }
-    response = requests.post(GOOGLE_TOKEN_URL, data=token_data)
-    if response.status_code != 200:
-        raise ValueError(f"Token exchange failed: {response.text}")
-    return response.json()
+    resp = requests.post(GOOGLE_TOKEN_URL, data=token_data)
+    if resp.status_code != 200:
+        raise ValueError(f"Token exchange failed: {resp.text}")
+    return resp.json()
 
-##############################################
-# Helper: Validate Domain
-##############################################
-def validate_id_token(id_token_jwt, client_id):
+def verify_domain(id_token_jwt: str):
     """
-    Use google-auth to verify the JWT from Google's token endpoint.
+    Ensure the user is from the 's-p.net' domain.
     """
-    id_info = id_token.verify_oauth2_token(
+    info = id_token.verify_oauth2_token(
         id_token_jwt,
         google_requests.Request(),
-        client_id
+        GOOGLE_CLIENT_ID
     )
-    # We only allow s-p.net domain
-    if id_info.get("hd") != "s-p.net":
-        raise ValueError(f"Domain not allowed: {id_info.get('hd')}")
-    return id_info
+    domain = info.get("hd")
+    if domain != "s-p.net":
+        raise ValueError(f"Access restricted to 's-p.net'. Your domain: {domain}")
+    return info
 
 ##############################################
-# The Main IT Interface
+# 4) The Main IT Interface
 ##############################################
 def main_it_app():
-    """
-    A simple placeholder for your GPT or "add to KB" functionality.
-    """
     openai.api_key = os.getenv("OPENAI_API_KEY")
 
-    st.title("IT Super Bot - Fresh Start")
-    st.write(f"Welcome, {st.session_state.user_email}!")
+    st.title("IT Super Bot - Using a Singleton State Store")
+    st.write("You're authenticated and from s-p.net—welcome!")
 
-    user_input = st.text_input("Ask a question or say 'Please add...' to store info:")
+    user_input = st.text_input("Ask something or say 'Please add...' to store info:")
     if user_input:
         if user_input.lower().startswith("please add"):
-            st.write(f"**(Pretending to store in knowledge base)**: {user_input[10:].strip()}")
+            st.write(f"**(Pretending to store)**: {user_input[10:].strip()}")
         else:
             # Minimal GPT call
             response = openai.Completion.create(
@@ -137,87 +136,86 @@ def main_it_app():
             st.write(response.choices[0].text.strip())
 
 ##############################################
-# The "From Scratch" Flow
+# 5) The Entry Point
 ##############################################
 def run_app():
     query_params = st.query_params
     logging.debug(f"Query params: {query_params}")
 
-    # -- EXTRA DEBUG: Show query params in the UI too --
-    st.write("**Debug**: Raw query_params:", query_params)
-    if "code" in query_params:
-        st.write("**Debug**: query_params['code'] =", query_params["code"])
-    if "state" in query_params:
-        st.write("**Debug**: query_params['state'] =", query_params["state"])
+    # Show debug info in the UI for clarity
+    st.write("**DEBUG**: Query params:", query_params)
 
-    if not st.session_state.authenticated:
-        # If we see ?code=..., ?state=..., handle callback
-        if "code" in query_params and "state" in query_params:
-            # IMPORTANT: No [0] indexing here
-            code = query_params["code"]
-            returned_state = query_params["state"]
-            logging.debug(f"Returned code={code}, state={returned_state}")
+    # If we see ?code=...&state=..., attempt callback
+    if "code" in query_params and "state" in query_params:
+        code = query_params["code"]
+        returned_state = query_params["state"]
+        logging.debug(f"Returned code={code}, state={returned_state}")
 
-            # 1) Check if returned_state matches st.session_state.state
-            expected_state = st.session_state.state
-            if returned_state != expected_state:
-                st.error("State mismatch or missing.")
-                st.stop()
+        # Check the store
+        state_store = get_state_store()
+        if returned_state not in state_store:
+            st.error("State mismatch or missing. (No record in our state store.)")
+            st.stop()
+        else:
+            # We found the state in our dictionary—remove it so it can't be reused
+            del state_store[returned_state]
 
-            # 2) If it matches, exchange code for token
+            # Exchange code for tokens
             try:
-                token_json = exchange_code_for_token(
-                    code,
-                    GOOGLE_CLIENT_ID,
-                    GOOGLE_CLIENT_SECRET,
-                    REDIRECT_URI
-                )
-                logging.debug(f"Token JSON from Google: {token_json}")
-
-                # 3) Validate the ID token domain
-                id_info = validate_id_token(token_json["id_token"], GOOGLE_CLIENT_ID)
-
-                # If domain is s-p.net, success
-                st.session_state.authenticated = True
-                st.session_state.user_email = id_info.get("email", "unknown")
-
-                # Clear the query params so we don’t re-process them
-                st.experimental_set_query_params()
+                token_json = exchange_code_for_token(code)
+                id_info = verify_domain(token_json["id_token"])
+                # If no exception so far, we're good
+                st.experimental_set_query_params()  # clear out the code/state
                 st.experimental_rerun()
-
             except Exception as e:
                 st.error(f"Authentication failed: {e}")
                 logging.error(f"Auth error: {e}")
                 st.stop()
 
-        # If still not authenticated, show sign-in link
-        if not st.session_state.authenticated:
-            st.title("IT Super Bot (Fresh Flow)")
-            st.write("Please sign in with your s-p.net Google account.")
+    # If domain check succeeded, or we haven't triggered callback yet, show main
+    # But first we confirm we have an ID token in session? Actually, we didn't store it
+    # or do st.session_state. We'll rely on "did we pass domain check"?
+    # For a real app, you'd want to store a "authenticated=True" state or a user token.
+    # We'll do a simple approach: if user hasn't triggered code & state, show sign in link.
 
-            # If we don't have a session-level state yet, generate one
-            if st.session_state.state is None:
-                st.session_state.state = secrets.token_urlsafe(16)
-                logging.debug(f"Generated fresh random state: {st.session_state.state}")
+    # We'll keep it even simpler:
+    #  - If the user hasn't just come from Google, we show a sign-in link.
+    #  - Once they come back from Google and domain check passes, we just re-run without code/state in URL -> show main app.
 
-            # Build the URL manually
-            sign_in_url = build_auth_url(
-                GOOGLE_CLIENT_ID,
-                REDIRECT_URI,
-                OAUTH_SCOPES,
-                st.session_state.state
-            )
-            st.write("Click the link below to sign in (in the same tab if possible).")
-            st.markdown(f"[**Sign in with Google**]({sign_in_url})")
+    # If we made it here and there's no code/state in URL, we must be "authenticated"
+    # or we haven't started yet. Let's do a quick session approach.
+    if "authenticated" not in st.session_state:
+        st.session_state.authenticated = False
 
-            st.info("**Note**: If your browser opens a brand-new window with no shared session, the state might mismatch. Try SHIFT-click or simply left-click to open in this tab.")
-            st.stop()
+    if st.session_state.authenticated is False:
+        # They haven't been through the domain check yet
+        st.title("IT Super Bot (Login w/ Singleton State Store)")
+        st.write("Sign in with your s-p.net Google account.")
+        auth_url = build_auth_url_and_store_state()
+        st.markdown(f"[**Sign in with Google**]({auth_url})")
+        st.stop()
+    else:
+        # Already authenticated
+        main_it_app()
 
-    # If we get here, user is authenticated
-    main_it_app()
+# Let's do that final domain check in the same step
+# We'll store "authenticated" in st.session_state after verifying domain
+# We'll do that in verify_domain.
 
-##############################################
-# Entry Point
-##############################################
+
+def verify_domain(id_token_jwt: str):
+    info = id_token.verify_oauth2_token(
+        id_token_jwt,
+        google_requests.Request(),
+        GOOGLE_CLIENT_ID
+    )
+    domain = info.get("hd")
+    if domain != "s-p.net":
+        raise ValueError(f"Access restricted to 's-p.net'. Your domain: {domain}")
+    # If no error, we set st.session_state.authenticated = True
+    st.session_state.authenticated = True
+    return info
+
+
 if __name__ == "__main__":
     run_app()
