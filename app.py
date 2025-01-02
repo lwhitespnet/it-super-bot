@@ -1,5 +1,5 @@
 ##############################################
-# app.py - Fix for "State mismatch" in Streamlit
+# app.py - Store Flow in Session State to Fix "State mismatch"
 ##############################################
 
 import streamlit as st
@@ -21,51 +21,65 @@ logging.basicConfig(level=logging.DEBUG)
 ##############################################
 # Constants
 ##############################################
-REDIRECT_URI = "https://it-super-bot.streamlit.app"
+REDIRECT_URI = "https://it-super-bot.streamlit.app"  # your base domain
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 
-flow = Flow.from_client_config(
-    {
-        "web": {
-            "client_id": GOOGLE_CLIENT_ID,
-            "client_secret": GOOGLE_CLIENT_SECRET,
-            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-            "token_uri": "https://oauth2.googleapis.com/token",
-            "redirect_uris": [REDIRECT_URI],
-        }
-    },
-    scopes=["openid", "email", "profile"],
-)
-flow.redirect_uri = REDIRECT_URI
+
+def create_flow():
+    """
+    Create a new OAuth Flow instance (with redirect URIs, scopes, etc.)
+    """
+    return Flow.from_client_config(
+        {
+            "web": {
+                "client_id": GOOGLE_CLIENT_ID,
+                "client_secret": GOOGLE_CLIENT_SECRET,
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "redirect_uris": [REDIRECT_URI],
+            }
+        },
+        scopes=["openid", "email", "profile"],
+    )
+
 
 ##############################################
 # Session State Defaults
 ##############################################
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
+
 if "user_email" not in st.session_state:
     st.session_state.user_email = None
-if "oauth_state" not in st.session_state:
-    st.session_state.oauth_state = None
+
+if "flow" not in st.session_state:
+    # Create & store a single Flow instance in session state
+    st.session_state.flow = create_flow()
+    st.session_state.flow.redirect_uri = REDIRECT_URI
+
 
 ##############################################
 # Handle OAuth Callback
 ##############################################
 def handle_oauth_callback(code: str, returned_state: str) -> bool:
     """
-    Exchanges code for tokens, checks domain 's-p.net',
-    sets st.session_state.authenticated if good.
+    Uses the same Flow instance from st.session_state,
+    exchanges code for tokens, checks domain = s-p.net.
     """
     try:
-        expected_state = st.session_state.oauth_state
-        if returned_state != expected_state:
+        # Pull out the stored Flow instance
+        flow: Flow = st.session_state.flow
+
+        # If the returned state doesn't match flow's internal state, mismatch.
+        if returned_state != flow.oauth2session.state:
             raise ValueError("State mismatch or missing.")
-        
+
+        # Exchange the code for tokens
         flow.fetch_token(code=code)
-        credentials = flow.credentials
 
         # Verify ID token
+        credentials = flow.credentials
         id_info = id_token.verify_oauth2_token(
             credentials.id_token,
             requests.Request(),
@@ -78,6 +92,7 @@ def handle_oauth_callback(code: str, returned_state: str) -> bool:
             st.error("Access restricted to Sight Partners users.")
             return False
 
+        # If we reach here, authentication is good
         st.session_state.authenticated = True
         st.session_state.user_email = id_info.get("email", "unknown")
         logging.debug(f"User authenticated as {st.session_state.user_email}")
@@ -87,6 +102,7 @@ def handle_oauth_callback(code: str, returned_state: str) -> bool:
         logging.error(f"Error during OAuth callback: {e}")
         st.error("Authentication failed. Please try again.")
         return False
+
 
 ##############################################
 # Main IT Assistant
@@ -111,45 +127,45 @@ def main():
             )
             st.write(response.choices[0].text.strip())
 
+
 ##############################################
 # Run the App
 ##############################################
 def run_app():
+    # Check for code/state in the URL
     query_params = st.query_params
     logging.debug(f"query_params: {query_params}")
 
     if not st.session_state.authenticated:
-        # If we got ?code=... & ?state=..., handle the callback
         if "code" in query_params and "state" in query_params:
             code = query_params["code"][0]
             returned_state = query_params["state"][0]
+
             if handle_oauth_callback(code, returned_state):
-                st.experimental_set_query_params()  # Clear out code/state
+                # Clear out code/state from the URL
+                st.experimental_set_query_params()
                 st.experimental_rerun()
             else:
-                return  # Stop if failed
+                return  # If it failed, show the error
 
-        # If still not authenticated, show sign-in
         if not st.session_state.authenticated:
             st.title("IT Super Bot (Login)")
             st.write("Sign in with your Sight Partners Google account.")
 
-            # *** Only generate a new state if we don't have one already ***
-            if not st.session_state.oauth_state:
-                auth_url, current_state = flow.authorization_url(prompt="consent")
-                st.session_state.oauth_state = current_state
-                logging.debug(f"Generated state once = {current_state}")
-            else:
-                # We already have a state from a prior run
-                # so just reuse it for the sign-in link
-                auth_url = flow.authorization_url(prompt="consent", state=st.session_state.oauth_state)[0]
-                logging.debug(f"Reusing existing state = {st.session_state.oauth_state}")
+            # Pull out the single Flow object from session_state
+            flow: Flow = st.session_state.flow
 
+            # Get the auth URL & state from the existing Flow
+            auth_url, _ = flow.authorization_url(prompt="consent")
+            # Flow manages its own internal "state" now
+
+            logging.debug(f"auth_url={auth_url}")
             st.markdown(f"[**Sign in with Google**]({auth_url})")
             return
 
     # If we get here, user is authenticated
     main()
+
 
 if __name__ == "__main__":
     run_app()
