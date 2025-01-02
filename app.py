@@ -1,6 +1,6 @@
 ##############################################
 # app.py - Minimal Streamlit + Google OAuth + OpenAI Example
-# Streamlit Cloud ONLY, manual "2-step" approach to avoid loops
+# Single-step approach, uses /_stcore/oauth-callback
 ##############################################
 
 import streamlit as st
@@ -14,7 +14,7 @@ from google.oauth2 import id_token
 
 import openai
 
-# Load environment variables from .env
+# Load .env variables
 load_dotenv()
 
 ##############################################
@@ -30,7 +30,6 @@ else:
 # Google OAuth Config
 ##############################################
 REDIRECT_URI = "https://it-super-bot.streamlit.app/_stcore/oauth-callback"
-
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 
@@ -57,31 +56,21 @@ if "user_email" not in st.session_state:
     st.session_state.user_email = None
 if "oauth_state" not in st.session_state:
     st.session_state.oauth_state = None
-if "just_authed" not in st.session_state:
-    # We'll use this to show a "You just authenticated!" screen
-    st.session_state.just_authed = False
 
 ##############################################
-# OAuth Callback Handler
+# Handle OAuth Callback
 ##############################################
 def handle_oauth_callback(code: str, state: str) -> bool:
     """
-    Validates the state param, exchanges code for tokens,
-    and restricts domain to s-p.net.
-    Returns True if authenticated, False otherwise.
+    Exchanges code for tokens, checks domain 's-p.net',
+    sets st.session_state.authenticated if good.
     """
     try:
-        # Check state param
         if state != st.session_state.oauth_state:
-            raise ValueError("State parameter mismatch or missing.")
+            raise ValueError("State mismatch or missing.")
 
-        if not code:
-            raise ValueError("Missing authorization code.")
-
-        # Exchange the code for tokens
         flow.fetch_token(code=code)
         credentials = flow.credentials
-        logging.debug(f"Credentials: {credentials}")
 
         # Verify ID token
         id_info = id_token.verify_oauth2_token(
@@ -96,7 +85,6 @@ def handle_oauth_callback(code: str, state: str) -> bool:
             st.error("Access restricted to Sight Partners users.")
             return False
 
-        # If we made it here, authentication is successful
         st.session_state.authenticated = True
         st.session_state.user_email = id_info.get("email", "unknown")
         logging.debug(f"User authenticated as {st.session_state.user_email}")
@@ -110,11 +98,10 @@ def handle_oauth_callback(code: str, state: str) -> bool:
 ##############################################
 # Main IT Assistant
 ##############################################
-def main_app():
+def main():
     """
-    Main interface for the IT Super Bot after authentication.
+    Show the main interface once authenticated.
     """
-    # Initialize OpenAI
     openai.api_key = os.getenv("OPENAI_API_KEY")
 
     st.title("IT Super Bot")
@@ -123,10 +110,8 @@ def main_app():
     user_input = st.text_input("Ask a question or say 'Please add...' to store info:")
     if user_input:
         if user_input.lower().startswith("please add"):
-            st.write("Pretending to add that info to the knowledge base...")
-            st.write(f"Added: {user_input[10:].strip()}")
+            st.write(f"Pretending to add: {user_input[10:].strip()}")
         else:
-            # Quick GPT response (completions API for a quick example)
             response = openai.Completion.create(
                 engine="text-davinci-003",
                 prompt=user_input,
@@ -139,47 +124,37 @@ def main_app():
 # Run the App
 ##############################################
 def run_app():
-    # Grab any query params
-    query_params = st.experimental_get_query_params()
-    logging.debug(f"query_params on load: {query_params}")
+    # Check if we got code & state in the URL
+    query_params = st.query_params
+    logging.debug(f"query_params: {query_params}")
 
-    # Step 1: If user just came back from Google with code/state
-    if "code" in query_params and "state" in query_params and not st.session_state.authenticated:
-        code = query_params["code"][0]
-        state = query_params["state"][0]
-        logging.debug(f"Received code={code}, state={state} from URL")
-
-        success = handle_oauth_callback(code, state)
-        if success:
-            # Mark that we just authed, so we can show a "Continue" screen
-            st.session_state.just_authed = True
-
-        # Clear query params from the URL
-        st.experimental_set_query_params()
-        # We'll continue below
-
-    # Step 2: If not authenticated:
     if not st.session_state.authenticated:
-        # If we just authed, we might have a domain error or success
-        if st.session_state.just_authed and st.session_state.authenticated:
-            # We are now authenticated - user can continue
-            st.header("You’re authenticated!")
-            st.write("Click the button below to continue to IT Super Bot.")
-            if st.button("Continue"):
-                st.session_state.just_authed = False
-                st.experimental_rerun()  # Rerun, now fully ignoring code/state
-            st.stop()
+        # If code & state are present, handle the callback
+        if "code" in query_params and "state" in query_params:
+            code = query_params["code"][0]
+            state = query_params["state"][0]
+            success = handle_oauth_callback(code, state)
+            # Clear query params on success to avoid re-processing
+            if success:
+                st.experimental_set_query_params()
+                st.experimental_rerun()
+            else:
+                return  # Stop if failed
 
-        # If we’re still not authed, show the login link
-        st.title("IT Super Bot (Login)")
-        st.write("Sign in with your Sight Partners Google account.")
-        auth_url, generated_state = flow.authorization_url(prompt="consent")
-        st.session_state.oauth_state = generated_state
-        st.markdown(f"[**Sign in with Google**]({auth_url})")
-        st.stop()
+        # If still not authenticated, show sign-in link
+        if not st.session_state.authenticated:
+            st.title("IT Super Bot (Login)")
+            st.write("Sign in with your Sight Partners Google account.")
 
-    # Step 3: Authenticated user goes to main
-    main_app()
+            auth_url, current_state = flow.authorization_url(prompt="consent")
+            st.session_state.oauth_state = current_state
+            logging.debug(f"auth_url={auth_url}, state={current_state}")
+
+            st.markdown(f"[**Sign in with Google**]({auth_url})")
+            return
+
+    # If authenticated, show main interface
+    main()
 
 if __name__ == "__main__":
     run_app()
