@@ -1,7 +1,8 @@
 ##############################################
-# streamlit_app.py
+# app.py
 # Minimal Google OAuth example with a cache_resource store for 'state'
-# Using ONLY st.experimental_get_query_params / st.experimental_set_query_params
+# Using st.experimental_get_query_params() / st.experimental_set_query_params()
+# and extracting the first element of each param.
 ##############################################
 
 import os
@@ -81,7 +82,7 @@ def build_auth_url_and_store_state() -> str:
     return auth_url
 
 ##############################################
-# 3) Function: Exchange code for token + domain check
+# 3) Function: Exchange code for token
 ##############################################
 def exchange_code_for_token(code: str) -> dict:
     """
@@ -99,6 +100,9 @@ def exchange_code_for_token(code: str) -> dict:
         raise ValueError(f"Token exchange failed: {resp.text}")
     return resp.json()
 
+##############################################
+# 4) Domain Check
+##############################################
 def verify_domain(id_token_jwt: str):
     """
     Ensure the user is from the 's-p.net' domain.
@@ -111,15 +115,17 @@ def verify_domain(id_token_jwt: str):
     domain = info.get("hd")
     if domain != "s-p.net":
         raise ValueError(f"Access restricted to 's-p.net'. Your domain: {domain}")
+    # Mark user as authenticated in session
+    st.session_state.authenticated = True
     return info
 
 ##############################################
-# 4) The Main IT Interface
+# 5) The Main IT Interface
 ##############################################
 def main_it_app():
     openai.api_key = os.getenv("OPENAI_API_KEY")
 
-    st.title("IT Super Bot - Using a Singleton State Store (No st.query_params)")
+    st.title("IT Super Bot - Using a Singleton State Store (Lists -> Single Strings)")
     st.write("You're authenticated and from s-p.net—welcome!")
 
     user_input = st.text_input("Ask something or say 'Please add...' to store info:")
@@ -137,7 +143,7 @@ def main_it_app():
             st.write(response.choices[0].text.strip())
 
 ##############################################
-# 5) The Entry Point
+# 6) The Entry Point
 ##############################################
 def run_app():
     # Use st.experimental_get_query_params to avoid conflict
@@ -149,8 +155,13 @@ def run_app():
 
     # If we see ?code=...&state=..., attempt callback
     if "code" in query_params and "state" in query_params:
-        code = query_params["code"]
-        returned_state = query_params["state"]
+        # Because query_params can have lists, we take the first element
+        code_list = query_params["code"]
+        state_list = query_params["state"]
+
+        code = code_list[0] if isinstance(code_list, list) else code_list
+        returned_state = state_list[0] if isinstance(state_list, list) else state_list
+
         logging.debug(f"Returned code={code}, state={returned_state}")
 
         # Check the store
@@ -167,7 +178,7 @@ def run_app():
                 token_json = exchange_code_for_token(code)
                 id_info = verify_domain(token_json["id_token"])
                 # If no exception so far, we set ourselves as authenticated
-                st.session_state.authenticated = True
+                # (verify_domain does st.session_state.authenticated = True)
 
                 # Clear out the code/state from the URL
                 st.experimental_set_query_params()
@@ -182,7 +193,7 @@ def run_app():
         st.session_state.authenticated = False
 
     if not st.session_state.authenticated:
-        st.title("IT Super Bot (Login w/ Singleton State Store, No st.query_params)")
+        st.title("IT Super Bot (Login w/ Singleton State Store, Lists -> Single Strings)")
         st.write("Sign in with your s-p.net Google account.")
 
         auth_url = build_auth_url_and_store_state()
@@ -192,18 +203,6 @@ def run_app():
         # Already authenticated
         main_it_app()
 
-# We'll re-define verify_domain here to also set authenticated = True after domain check
-def verify_domain(id_token_jwt: str):
-    info = id_token.verify_oauth2_token(
-        id_token_jwt,
-        google_requests.Request(),
-        GOOGLE_CLIENT_ID
-    )
-    domain = info.get("hd")
-    if domain != "s-p.net":
-        raise ValueError(f"Access restricted to 's-p.net'. Your domain: {domain}")
-    st.session_state.authenticated = True
-    return info
 
 if __name__ == "__main__":
     run_app()
