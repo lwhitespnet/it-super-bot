@@ -1,6 +1,6 @@
 ##############################################
 # app.py - Minimal Streamlit + Google OAuth + OpenAI Example
-# Single-step approach, uses /_stcore/oauth-callback
+# Returns to the BASE domain, not /_stcore
 ##############################################
 
 import streamlit as st
@@ -14,22 +14,20 @@ from google.oauth2 import id_token
 
 import openai
 
-# Load .env variables
+# Load .env
 load_dotenv()
 
 ##############################################
 # Debug / Logging
 ##############################################
-DEBUG = True
-if DEBUG:
-    logging.basicConfig(level=logging.DEBUG)
-else:
-    logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 
 ##############################################
 # Google OAuth Config
 ##############################################
-REDIRECT_URI = "https://it-super-bot.streamlit.app/_stcore/oauth-callback"
+# Return users to the base domain only
+REDIRECT_URI = "https://it-super-bot.streamlit.app"
+
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 
@@ -66,6 +64,7 @@ def handle_oauth_callback(code: str, state: str) -> bool:
     sets st.session_state.authenticated if good.
     """
     try:
+        # Check state
         if state != st.session_state.oauth_state:
             raise ValueError("State mismatch or missing.")
 
@@ -99,9 +98,7 @@ def handle_oauth_callback(code: str, state: str) -> bool:
 # Main IT Assistant
 ##############################################
 def main():
-    """
-    Show the main interface once authenticated.
-    """
+    # Initialize OpenAI
     openai.api_key = os.getenv("OPENAI_API_KEY")
 
     st.title("IT Super Bot")
@@ -124,24 +121,21 @@ def main():
 # Run the App
 ##############################################
 def run_app():
-    # Check if we got code & state in the URL
+    # Check if code & state are in the URL
     query_params = st.query_params
     logging.debug(f"query_params: {query_params}")
 
+    # If not authed yet, handle callback or show sign-in
     if not st.session_state.authenticated:
-        # If code & state are present, handle the callback
         if "code" in query_params and "state" in query_params:
             code = query_params["code"][0]
             state = query_params["state"][0]
-            success = handle_oauth_callback(code, state)
-            # Clear query params on success to avoid re-processing
-            if success:
+            if handle_oauth_callback(code, state):
                 st.experimental_set_query_params()
                 st.experimental_rerun()
             else:
-                return  # Stop if failed
+                return  # stop if it failed
 
-        # If still not authenticated, show sign-in link
         if not st.session_state.authenticated:
             st.title("IT Super Bot (Login)")
             st.write("Sign in with your Sight Partners Google account.")
@@ -153,7 +147,7 @@ def run_app():
             st.markdown(f"[**Sign in with Google**]({auth_url})")
             return
 
-    # If authenticated, show main interface
+    # If we get here, user is authenticated
     main()
 
 if __name__ == "__main__":
