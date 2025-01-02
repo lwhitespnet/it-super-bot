@@ -1,5 +1,6 @@
 ##############################################
-# fresh_app.py - A "from scratch" minimal approach
+# fresh_app_debug.py - A "from scratch" minimal approach
+# with extra debugging info in the UI
 ##############################################
 
 import os
@@ -41,7 +42,6 @@ OAUTH_SCOPES = [
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 
-
 ##############################################
 # Session State Defaults
 ##############################################
@@ -61,7 +61,6 @@ def build_auth_url(client_id, redirect_uri, scopes, state):
     using the standard query params for "response_type=code".
     """
     scope_str = "+".join(scopes)
-    # We only ask for offline if we want refresh tokens; up to you
     url = (
         f"{GOOGLE_AUTH_URL}"
         f"?client_id={client_id}"
@@ -143,6 +142,15 @@ def run_app():
     query_params = st.query_params
     logging.debug(f"Query params: {query_params}")
 
+    # -- EXTRA DEBUG: Show query params in the UI too --
+    st.write("**Debug**: Raw query_params:", query_params)
+    if "code" in query_params:
+        st.write("**Debug**: query_params['code'] =", query_params["code"])
+        st.write("**Debug**: query_params['code'][0] =", query_params["code"][0])
+    if "state" in query_params:
+        st.write("**Debug**: query_params['state'] =", query_params["state"])
+        st.write("**Debug**: query_params['state'][0] =", query_params["state"][0])
+
     if not st.session_state.authenticated:
         # If we see ?code=..., ?state=..., handle callback
         if "code" in query_params and "state" in query_params:
@@ -150,7 +158,7 @@ def run_app():
             returned_state = query_params["state"][0]
             logging.debug(f"Returned code={code}, state={returned_state}")
 
-            # 1) Check if the returned_state matches our stored st.session_state.state
+            # 1) Check if returned_state matches st.session_state.state
             expected_state = st.session_state.state
             if returned_state != expected_state:
                 st.error("State mismatch or missing.")
@@ -187,7 +195,7 @@ def run_app():
             st.title("IT Super Bot (Fresh Flow)")
             st.write("Please sign in with your s-p.net Google account.")
 
-            # If we don't have a "session-level" state yet, generate one
+            # If we don't have a session-level state yet, generate one
             if st.session_state.state is None:
                 st.session_state.state = secrets.token_urlsafe(16)
                 logging.debug(f"Generated fresh random state: {st.session_state.state}")
@@ -207,7 +215,6 @@ def run_app():
 
     # If we get here, user is authenticated
     main_it_app()
-
 
 ##############################################
 # Entry Point
