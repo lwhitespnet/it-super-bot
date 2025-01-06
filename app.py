@@ -1,7 +1,7 @@
 ##############################################
 # app.py
 # Minimal Google OAuth example with a cache_resource store for 'state'
-# - No debugging prints
+# - Opens the OAuth flow in a pop-up window
 # - Fallback approach for re-run (no st.experimental_rerun)
 # - Using openai==0.28.1 (ChatCompletion) with GPT-4
 ##############################################
@@ -169,10 +169,23 @@ def run_app():
 
     if not st.session_state.authenticated:
         st.title("IT Super Bot (Login)")
-        st.write("Sign in with your s-p.net Google account.")
+        st.write("Sign in with your s-p.net Google account in a pop-up window.")
 
         auth_url = build_auth_url_and_store_state()
-        st.markdown(f"[**Sign in with Google**]({auth_url})")
+
+        # JavaScript snippet to open the sign-in URL in a pop-up window
+        popup_js = f"""
+            <script>
+            function openPopup() {{
+                window.open("{auth_url}", "oauthPopup",
+                            "width=600,height=700,left=200,top=100");
+            }}
+            </script>
+            <button onclick="openPopup()">Sign in with Google (Pop-up)</button>
+        """
+
+        st.markdown(popup_js, unsafe_allow_html=True)
+
         st.stop()
     else:
         main_it_app()
