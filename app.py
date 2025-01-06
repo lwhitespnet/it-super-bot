@@ -1,7 +1,8 @@
 ##############################################
 # app.py
 # Minimal Google OAuth example with a cache_resource store for 'state'
-# Fallback approach with no st.experimental_rerun (since it's missing).
+# Fallback approach with no st.experimental_rerun, and
+# using the new ChatCompletion API (v2) instead of the old Completions endpoint.
 ##############################################
 
 import sys
@@ -21,7 +22,7 @@ import openai
 ##############################################
 # 0) Debug Info
 ##############################################
-# Let's log & display debug about Streamlit
+# Display some debug info about Streamlit environment.
 st.write(f"**Streamlit version:** {st.__version__}")
 streamlit_file = sys.modules["streamlit"].__file__
 st.write(f"**Streamlit imported from:** {streamlit_file}")
@@ -49,7 +50,6 @@ GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 OAUTH_SCOPES = ["openid", "email", "profile"]
 
-
 ##############################################
 # 3) A "singleton" (cache_resource) store for valid states
 ##############################################
@@ -62,7 +62,6 @@ def get_state_store() -> dict:
     Values: True (or any truthy value)
     """
     return {}
-
 
 ##############################################
 # 4) Build auth URL & store random state
@@ -86,7 +85,6 @@ def build_auth_url_and_store_state() -> str:
     logging.debug(f"Generated new state={random_state} and stored in dict.")
     return auth_url
 
-
 ##############################################
 # 5) Exchange code for token
 ##############################################
@@ -103,7 +101,6 @@ def exchange_code_for_token(code: str) -> dict:
         raise ValueError(f"Token exchange failed: {resp.text}")
     return resp.json()
 
-
 ##############################################
 # 6) Check domain
 ##############################################
@@ -119,14 +116,13 @@ def verify_domain(id_token_jwt: str):
     st.session_state.authenticated = True
     return info
 
-
 ##############################################
 # 7) The Main IT Interface
 ##############################################
 def main_it_app():
     openai.api_key = os.getenv("OPENAI_API_KEY")
 
-    st.title("IT Super Bot - Fallback (No experimental_rerun)")
+    st.title("IT Super Bot - Fallback (No experimental_rerun) - Using ChatCompletion API")
     st.write("You're authenticated and from s-p.net—welcome!")
 
     user_input = st.text_input("Ask something or say 'Please add...' to store info:")
@@ -134,20 +130,23 @@ def main_it_app():
         if user_input.lower().startswith("please add"):
             st.write(f"**(Pretending to store)**: {user_input[10:].strip()}")
         else:
-            response = openai.Completion.create(
-                engine="text-davinci-003",
-                prompt=user_input,
-                max_tokens=60,
+            # Use the ChatCompletion endpoint (gpt-3.5-turbo) - v2 approach
+            response = openai.ChatCompletion.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "You are a helpful IT assistant."},
+                    {"role": "user", "content": user_input},
+                ],
+                max_tokens=100,
                 temperature=0.7
             )
-            st.write(response.choices[0].text.strip())
-
+            st.write(response["choices"][0]["message"]["content"].strip())
 
 ##############################################
 # 8) Entry point
 ##############################################
 def run_app():
-    # Using st.experimental_get_query_params (with deprecation warning)
+    # Using st.experimental_get_query_params (with a deprecation warning—it's fine for now)
     query_params = st.experimental_get_query_params()
     logging.debug(f"Query params: {query_params}")
     st.write("**DEBUG**: experimental_get_query_params:", query_params)
@@ -175,16 +174,10 @@ def run_app():
                 # Clear query params to remove code & state
                 st.experimental_set_query_params()
 
-                # Since st.experimental_rerun doesn't exist in your environment,
-                # we’ll show a "Continue" button. Once the user clicks it, they'll
-                # get a new page load with no code/state in the URL, and st.session_state.authenticated = True.
+                # We'll do a "success" message + button
                 st.success("Authentication succeeded! Please click below or refresh.")
                 if st.button("Click to continue"):
-                    # Just do nothing — the button click triggers a re-run automatically,
-                    # which should move on to the main_it_app() since authenticated is True.
-                    pass
-
-                # We stop to avoid showing the sign-in again beneath the success message.
+                    pass  # This triggers a new run, so 'authenticated' is True and we skip to main_it_app()
                 st.stop()
 
             except Exception as e:
