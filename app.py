@@ -1,10 +1,9 @@
 ##############################################
-# app.py
-# Minimal Google OAuth example with a cache_resource store for 'state'
-# Using st.experimental_get_query_params() / st.experimental_set_query_params()
-# and extracting the first element of each param.
+# app.py - Debug version
+# We'll print environment details about Streamlit
 ##############################################
 
+import sys
 import os
 import secrets
 import logging
@@ -19,6 +18,23 @@ from google.auth.transport import requests as google_requests
 import openai
 
 ##############################################
+# Extra Debug
+##############################################
+# 1) Print out Streamlit version
+# 2) Print out the file that provided the 'streamlit' module
+# 3) Check if 'experimental_rerun' is in dir(st)
+st.write(f"**Streamlit version:** {st.__version__}")
+logging.info(f"Streamlit version reported by st.__version__: {st.__version__}")
+
+streamlit_file = sys.modules["streamlit"].__file__
+st.write(f"**Streamlit imported from:** {streamlit_file}")
+logging.info(f"Streamlit imported from: {streamlit_file}")
+
+has_exp_rerun = "experimental_rerun" in dir(st)
+st.write(f"**'experimental_rerun' in dir(st)?** {has_exp_rerun}")
+logging.info(f"'experimental_rerun' in dir(st)? {has_exp_rerun}")
+
+##############################################
 # Load environment variables
 ##############################################
 load_dotenv()
@@ -27,12 +43,12 @@ load_dotenv()
 # Logging
 ##############################################
 logging.basicConfig(level=logging.DEBUG)
-logging.info(f"Running Python code...")
+logging.info("Running Python code...")
 
 ##############################################
 # Constants
 ##############################################
-REDIRECT_URI = "https://it-super-bot.streamlit.app"  # Use your domain here
+REDIRECT_URI = "https://it-super-bot.streamlit.app"
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 
@@ -47,12 +63,6 @@ OAUTH_SCOPES = ["openid", "email", "profile"]
 ##############################################
 @st.cache_resource
 def get_state_store() -> dict:
-    """
-    Returns a dictionary that will persist as long as the app
-    isn't fully shut down or redeployed.
-    Keys: state strings
-    Values: True (or any truthy value)
-    """
     return {}
 
 ##############################################
@@ -60,14 +70,9 @@ def get_state_store() -> dict:
 ##############################################
 def build_auth_url_and_store_state() -> str:
     state_store = get_state_store()
-
-    # Generate random state
     random_state = secrets.token_urlsafe(16)
-
-    # Put it in our persistent dictionary
     state_store[random_state] = True
 
-    # Build the OAuth URL manually
     scope_str = "+".join(OAUTH_SCOPES)
     auth_url = (
         f"{GOOGLE_AUTH_URL}"
@@ -86,9 +91,6 @@ def build_auth_url_and_store_state() -> str:
 # 3) Function: Exchange code for token
 ##############################################
 def exchange_code_for_token(code: str) -> dict:
-    """
-    Manually exchange the 'code' for tokens by POSTing to Google.
-    """
     token_data = {
         "code": code,
         "client_id": GOOGLE_CLIENT_ID,
@@ -105,9 +107,6 @@ def exchange_code_for_token(code: str) -> dict:
 # 4) Domain Check
 ##############################################
 def verify_domain(id_token_jwt: str):
-    """
-    Ensure the user is from the 's-p.net' domain.
-    """
     info = id_token.verify_oauth2_token(
         id_token_jwt,
         google_requests.Request(),
@@ -116,7 +115,6 @@ def verify_domain(id_token_jwt: str):
     domain = info.get("hd")
     if domain != "s-p.net":
         raise ValueError(f"Access restricted to 's-p.net'. Your domain: {domain}")
-    # Mark user as authenticated in session
     st.session_state.authenticated = True
     return info
 
@@ -126,7 +124,7 @@ def verify_domain(id_token_jwt: str):
 def main_it_app():
     openai.api_key = os.getenv("OPENAI_API_KEY")
 
-    st.title("IT Super Bot - Using a Singleton State Store (Lists -> Single Strings)")
+    st.title("IT Super Bot - Debug Version")
     st.write("You're authenticated and from s-p.net—welcome!")
 
     user_input = st.text_input("Ask something or say 'Please add...' to store info:")
@@ -134,7 +132,6 @@ def main_it_app():
         if user_input.lower().startswith("please add"):
             st.write(f"**(Pretending to store)**: {user_input[10:].strip()}")
         else:
-            # Minimal GPT call
             response = openai.Completion.create(
                 engine="text-davinci-003",
                 prompt=user_input,
@@ -144,23 +141,26 @@ def main_it_app():
             st.write(response.choices[0].text.strip())
 
 ##############################################
-# 6) The Entry Point
+# 6) Attempt a rerun safely
+##############################################
+def safe_rerun():
+    if hasattr(st, "experimental_rerun"):
+        st.experimental_rerun()
+    else:
+        st.warning("Unable to do an automatic re-run. Please refresh your browser manually.")
+        st.stop()
+
+##############################################
+# 7) The Entry Point
 ##############################################
 def run_app():
-    # Show the Streamlit version in UI & logs
-    st.write(f"**Running Streamlit version:** {st.__version__}")
-    logging.info(f"Using Streamlit version: {st.__version__}")
-
-    # Use st.experimental_get_query_params to avoid conflict
+    # Use st.experimental_get_query_params for now
     query_params = st.experimental_get_query_params()
     logging.debug(f"Query params: {query_params}")
 
-    # Show debug info in the UI for clarity
     st.write("**DEBUG**: experimental_get_query_params:", query_params)
 
-    # If we see ?code=...&state=..., attempt callback
     if "code" in query_params and "state" in query_params:
-        # Because query_params can have lists, we take the first element
         code_list = query_params["code"]
         state_list = query_params["state"]
 
@@ -168,44 +168,34 @@ def run_app():
         returned_state = state_list[0] if isinstance(state_list, list) else state_list
 
         logging.debug(f"Returned code={code}, state={returned_state}")
-
-        # Check the store
         state_store = get_state_store()
+
         if returned_state not in state_store:
             st.error("State mismatch or missing. (No record in our state store.)")
             st.stop()
         else:
-            # We found the state in our dictionary—remove it so it can't be reused
             del state_store[returned_state]
-
-            # Exchange code for tokens
             try:
                 token_json = exchange_code_for_token(code)
-                id_info = verify_domain(token_json["id_token"])
-                # If no exception so far, we set ourselves as authenticated
-                # (verify_domain does st.session_state.authenticated = True)
-
-                # Clear out the code/state from the URL
+                verify_domain(token_json["id_token"])
                 st.experimental_set_query_params()
-                st.experimental_rerun()
+                safe_rerun()
             except Exception as e:
                 st.error(f"Authentication failed: {e}")
                 logging.error(f"Auth error: {e}")
                 st.stop()
 
-    # If the user hasn't triggered a callback or wasn't authed yet, show sign-in
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
 
     if not st.session_state.authenticated:
-        st.title("IT Super Bot (Login w/ Singleton State Store, Lists -> Single Strings)")
+        st.title("IT Super Bot - Debug Version")
         st.write("Sign in with your s-p.net Google account.")
 
         auth_url = build_auth_url_and_store_state()
         st.markdown(f"[**Sign in with Google**]({auth_url})")
         st.stop()
     else:
-        # Already authenticated
         main_it_app()
 
 
