@@ -27,6 +27,7 @@ load_dotenv()
 # Logging
 ##############################################
 logging.basicConfig(level=logging.DEBUG)
+logging.info(f"Running Python code...")
 
 ##############################################
 # Constants
@@ -146,6 +147,10 @@ def main_it_app():
 # 6) The Entry Point
 ##############################################
 def run_app():
+    # Show the Streamlit version in UI & logs
+    st.write(f"**Running Streamlit version:** {st.__version__}")
+    logging.info(f"Using Streamlit version: {st.__version__}")
+
     # Use st.experimental_get_query_params to avoid conflict
     query_params = st.experimental_get_query_params()
     logging.debug(f"Query params: {query_params}")
