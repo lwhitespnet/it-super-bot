@@ -1,8 +1,9 @@
 ##############################################
 # app.py
-# Minimal Google OAuth example with a cache_resource store for 'state'
-# Fallback approach with no st.experimental_rerun, and
-# using the new ChatCompletion API (v2) instead of the old Completions endpoint.
+# Minimal Google OAuth example using Streamlit
+# - Fallback approach (no st.experimental_rerun)
+# - Using the new openai.v2.chat.create() calls
+#   (because openai.ChatCompletion has been removed in openai>=1.0.0)
 ##############################################
 
 import sys
@@ -22,7 +23,6 @@ import openai
 ##############################################
 # 0) Debug Info
 ##############################################
-# Display some debug info about Streamlit environment.
 st.write(f"**Streamlit version:** {st.__version__}")
 streamlit_file = sys.modules["streamlit"].__file__
 st.write(f"**Streamlit imported from:** {streamlit_file}")
@@ -122,7 +122,7 @@ def verify_domain(id_token_jwt: str):
 def main_it_app():
     openai.api_key = os.getenv("OPENAI_API_KEY")
 
-    st.title("IT Super Bot - Fallback (No experimental_rerun) - Using ChatCompletion API")
+    st.title("IT Super Bot - Fallback + openai.v2.chat.create()")
     st.write("You're authenticated and from s-p.net—welcome!")
 
     user_input = st.text_input("Ask something or say 'Please add...' to store info:")
@@ -130,23 +130,31 @@ def main_it_app():
         if user_input.lower().startswith("please add"):
             st.write(f"**(Pretending to store)**: {user_input[10:].strip()}")
         else:
-            # Use the ChatCompletion endpoint (gpt-3.5-turbo) - v2 approach
-            response = openai.ChatCompletion.create(
+            # The new approach for openai>=1.0.0:
+            response = openai.v2.chat.create(
                 model="gpt-3.5-turbo",
                 messages=[
                     {"role": "system", "content": "You are a helpful IT assistant."},
                     {"role": "user", "content": user_input},
                 ],
-                max_tokens=100,
-                temperature=0.7
+                max_tokens=150,
+                temperature=0.7,
             )
-            st.write(response["choices"][0]["message"]["content"].strip())
+            # The shape of 'response' can vary; usually something like:
+            # {
+            #   'choices': [
+            #       {'message': {'role': 'assistant', 'content': '...'}}
+            #   ],
+            #   'usage': {...}
+            # }
+            answer = response["choices"][0]["message"]["content"]
+            st.write(answer.strip())
 
 ##############################################
 # 8) Entry point
 ##############################################
 def run_app():
-    # Using st.experimental_get_query_params (with a deprecation warning—it's fine for now)
+    # Using st.experimental_get_query_params (with a deprecation warning—it's okay for now)
     query_params = st.experimental_get_query_params()
     logging.debug(f"Query params: {query_params}")
     st.write("**DEBUG**: experimental_get_query_params:", query_params)
@@ -166,7 +174,6 @@ def run_app():
             st.error("State mismatch or missing. (No record in our state store.)")
             st.stop()
         else:
-            # Remove used state
             del state_store[returned_state]
             try:
                 token_json = exchange_code_for_token(code)
@@ -177,7 +184,7 @@ def run_app():
                 # We'll do a "success" message + button
                 st.success("Authentication succeeded! Please click below or refresh.")
                 if st.button("Click to continue"):
-                    pass  # This triggers a new run, so 'authenticated' is True and we skip to main_it_app()
+                    pass  # This triggers a new run, so 'authenticated' is True.
                 st.stop()
 
             except Exception as e:
@@ -190,7 +197,7 @@ def run_app():
         st.session_state.authenticated = False
 
     if not st.session_state.authenticated:
-        st.title("IT Super Bot - Fallback (No experimental_rerun)")
+        st.title("IT Super Bot - Fallback, using openai.v2")
         st.write("Sign in with your s-p.net Google account.")
 
         auth_url = build_auth_url_and_store_state()
