@@ -1,7 +1,9 @@
 ##############################################
 # app.py
-# Permanent knowledge base in Google Sheets
-# with gspread + openai ChatCompletion
+# IT Super Bot
+# - Google OAuth (opens in new tab, original approach)
+# - Simple ephemeral knowledge base ("Please add...")
+# - Using openai==0.28.1 with GPT-4
 ##############################################
 
 import os
@@ -16,16 +18,15 @@ from google.auth.transport import requests as google_requests
 
 import openai
 
-# NEW: gspread for Google Sheets
-import gspread
-from google.oauth2.service_account import Credentials
-
 ##############################################
 # Load environment variables
 ##############################################
 load_dotenv()
 
-REDIRECT_URI = "https://it-super-bot.streamlit.app"
+##############################################
+# Constants
+##############################################
+REDIRECT_URI = "https://it-super-bot.streamlit.app"  # Your Streamlit domain
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -34,23 +35,29 @@ GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 OAUTH_SCOPES = ["openid", "email", "profile"]
 
-# NEW: Sheets config
-#  - This is your service account credentials JSON, stored as a file or env var
-SERVICE_ACCOUNT_INFO = os.getenv("GSPREAD_CREDS")  # Could be a JSON string
-SHEETS_SCOPE = ["https://www.googleapis.com/auth/spreadsheets"]
-
-# The Google Sheet key/ID (from its URL). Example:
-SHEET_ID = os.getenv("SHEET_ID")  # or paste in the actual sheet ID
-
 ##############################################
-# 1) Singleton for valid states
+# 1) Cache Resource for State & Knowledge Base
 ##############################################
+
 @st.cache_resource
 def get_state_store() -> dict:
+    """
+    Persists valid OAuth states until the app redeploys.
+    Keys: random state strings
+    Values: True/any truthy value
+    """
     return {}
 
+@st.cache_resource
+def get_knowledge_base() -> list:
+    """
+    Persists knowledge base content in memory until the app redeploys.
+    Returns a list of strings (each "Please add" entry).
+    """
+    return []
+
 ##############################################
-# 2) Build auth URL
+# 2) Build Auth URL
 ##############################################
 def build_auth_url_and_store_state() -> str:
     state_store = get_state_store()
@@ -86,7 +93,7 @@ def exchange_code_for_token(code: str) -> dict:
     return resp.json()
 
 ##############################################
-# 4) Domain Check
+# 4) Verify Domain
 ##############################################
 def verify_domain(id_token_jwt: str):
     info = id_token.verify_oauth2_token(
@@ -101,78 +108,41 @@ def verify_domain(id_token_jwt: str):
     return info
 
 ##############################################
-# 5) Google Sheets Helper
-##############################################
-def get_gsheet():
-    """
-    Creates a gspread client using service account credentials
-    and returns a Worksheet object for the given SHEET_ID (first worksheet).
-    """
-    # If you stored the entire JSON as an env var:
-    import json
-    creds_dict = json.loads(SERVICE_ACCOUNT_INFO)
-
-    creds = Credentials.from_service_account_info(
-        creds_dict, scopes=SHEETS_SCOPE
-    )
-    gc = gspread.authorize(creds)
-
-    # Open the spreadsheet by ID
-    sh = gc.open_by_key(SHEET_ID)
-    # Return the first worksheet
-    return sh.get_worksheet(0)
-
-def read_knowledge_base():
-    """
-    Reads all rows from the Google Sheet. 
-    Returns a list of strings (each row's content).
-    """
-    ws = get_gsheet()
-    data = ws.get_all_values()  # list of lists
-    # If your sheet's first column holds the text, extract it
-    knowledge = []
-    for row in data:
-        if row and row[0].strip():
-            knowledge.append(row[0].strip())
-    return knowledge
-
-def add_to_knowledge_base(text: str):
-    """
-    Appends a new row to the sheet with the given text.
-    """
-    ws = get_gsheet()
-    ws.append_row([text])
-
-##############################################
-# 6) Main IT Interface
+# 5) Main IT Super Bot Interface
 ##############################################
 def main_it_app():
     openai.api_key = OPENAI_API_KEY
 
-    st.title("IT Super Bot with Google Sheets KB")
-    st.write("You’re authenticated and from s-p.net — welcome!")
+    st.title("IT Super Bot")
 
-    # Read knowledge base from sheet
-    knowledge_base = read_knowledge_base()
+    # Grab the knowledge base
+    knowledge_base = get_knowledge_base()
+
+    st.write("You're authenticated and from s-p.net — welcome!")
     st.write(f"Current knowledge base has **{len(knowledge_base)}** entries.")
 
     user_input = st.text_input("Ask something or say 'Please add...' to store info:")
     if user_input:
+        # Check if user wants to add to the knowledge base
         if user_input.lower().startswith("please add"):
             new_info = user_input[10:].strip()
-            add_to_knowledge_base(new_info)
-            st.write(f"**Stored**: {new_info}")
+            knowledge_base.append(new_info)
+            st.write(f"**Stored in knowledge base**: {new_info}")
+
         else:
-            # Build system prompt using knowledge base
+            # Incorporate the knowledge base into GPT context
             if knowledge_base:
-                context = "\n".join(knowledge_base)
+                knowledge_context = "\n".join(knowledge_base)
                 system_content = (
-                    "You are a helpful IT assistant. Here's your knowledge base:\n"
-                    f"{context}\n\n"
-                    "Use the above info if relevant when answering questions."
+                    "You are a helpful IT assistant. "
+                    "Below is your knowledge base, which can help answer questions:\n"
+                    f"{knowledge_context}\n\n"
+                    "Use this information if relevant."
                 )
             else:
-                system_content = "You are a helpful IT assistant. You have no knowledge base."
+                system_content = (
+                    "You are a helpful IT assistant. You currently have no knowledge base."
+                )
 
             response = openai.ChatCompletion.create(
                 model="gpt-4",
@@ -187,12 +157,12 @@ def main_it_app():
             st.write(answer)
 
 ##############################################
-# 7) Entry Point
+# 6) Entry Point
 ##############################################
 def run_app():
     query_params = st.experimental_get_query_params()
 
-    # Handle OAuth callback
+    # If we see code/state, handle callback
     if "code" in query_params and "state" in query_params:
         code_list = query_params["code"]
         state_list = query_params["state"]
@@ -211,8 +181,8 @@ def run_app():
                 verify_domain(token_json["id_token"])
                 st.experimental_set_query_params()
                 st.success("Authentication succeeded! Please click below or refresh.")
-                if st.button("Continue"):
-                    pass
+                if st.button("Continue to IT Super Bot"):
+                    pass  # triggers a new rerun; st.session_state.authenticated is True
                 st.stop()
             except Exception as e:
                 st.error(f"Authentication failed: {e}")
@@ -224,11 +194,11 @@ def run_app():
     if not st.session_state.authenticated:
         st.title("IT Super Bot (Login)")
 
-        # Build auth URL
         auth_url = build_auth_url_and_store_state()
-        # Link to open in same tab
-        link_html = f'<a href="{auth_url}" target="_self">Sign in with Google</a>'
-        st.markdown(link_html, unsafe_allow_html=True)
+
+        # REVERTED to the original Markdown approach, which typically opens a new tab
+        st.markdown(f"[**Sign in with Google**]({auth_url})")
+
         st.stop()
     else:
         main_it_app()
