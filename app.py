@@ -163,18 +163,16 @@ def run_app():
                 st.error(f"Authentication failed: {e}")
                 st.stop()
 
+    # If not authenticated, show sign-in
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
 
     if not st.session_state.authenticated:
         st.title("IT Super Bot (Login)")
+        st.write("Sign in with your s-p.net Google account.")
 
-        # Build the auth URL
         auth_url = build_auth_url_and_store_state()
-
-        # Make an HTML link with target="_self" to avoid new window
-        link_html = f'<a href="{auth_url}" target="_self">Sign in with Google</a>'
-        st.markdown(link_html, unsafe_allow_html=True)
+        st.markdown(f"[**Sign in with Google**]({auth_url})")
         st.stop()
     else:
         main_it_app()
