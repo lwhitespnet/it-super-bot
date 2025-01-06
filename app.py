@@ -1,9 +1,7 @@
 ##############################################
 # app.py
-# Minimal Google OAuth example with a cache_resource store for 'state'
-# - No debugging prints
-# - Fallback approach for re-run (no st.experimental_rerun)
-# - Using openai==0.28.1 (ChatCompletion) with GPT-4
+# Permanent knowledge base in Google Sheets
+# with gspread + openai ChatCompletion
 ##############################################
 
 import os
@@ -18,39 +16,41 @@ from google.auth.transport import requests as google_requests
 
 import openai
 
+# NEW: gspread for Google Sheets
+import gspread
+from google.oauth2.service_account import Credentials
+
 ##############################################
 # Load environment variables
 ##############################################
 load_dotenv()
 
-##############################################
-# Constants
-##############################################
-REDIRECT_URI = "https://it-super-bot.streamlit.app"  # Your Streamlit domain
+REDIRECT_URI = "https://it-super-bot.streamlit.app"
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
-
-# OAuth scopes for basic user info
 OAUTH_SCOPES = ["openid", "email", "profile"]
 
+# NEW: Sheets config
+#  - This is your service account credentials JSON, stored as a file or env var
+SERVICE_ACCOUNT_INFO = os.getenv("GSPREAD_CREDS")  # Could be a JSON string
+SHEETS_SCOPE = ["https://www.googleapis.com/auth/spreadsheets"]
+
+# The Google Sheet key/ID (from its URL). Example:
+SHEET_ID = os.getenv("SHEET_ID")  # or paste in the actual sheet ID
+
 ##############################################
-# 1) Singleton store for valid states
+# 1) Singleton for valid states
 ##############################################
 @st.cache_resource
 def get_state_store() -> dict:
-    """
-    Returns a dictionary that persists until the app is redeployed.
-    Keys: state strings
-    Values: True (or any truthy value)
-    """
     return {}
 
 ##############################################
-# 2) Build the auth URL & store random state
+# 2) Build auth URL
 ##############################################
 def build_auth_url_and_store_state() -> str:
     state_store = get_state_store()
@@ -86,7 +86,7 @@ def exchange_code_for_token(code: str) -> dict:
     return resp.json()
 
 ##############################################
-# 4) Verify s-p.net domain
+# 4) Domain Check
 ##############################################
 def verify_domain(id_token_jwt: str):
     info = id_token.verify_oauth2_token(
@@ -101,23 +101,83 @@ def verify_domain(id_token_jwt: str):
     return info
 
 ##############################################
-# 5) Main IT Super Bot Interface
+# 5) Google Sheets Helper
+##############################################
+def get_gsheet():
+    """
+    Creates a gspread client using service account credentials
+    and returns a Worksheet object for the given SHEET_ID (first worksheet).
+    """
+    # If you stored the entire JSON as an env var:
+    import json
+    creds_dict = json.loads(SERVICE_ACCOUNT_INFO)
+
+    creds = Credentials.from_service_account_info(
+        creds_dict, scopes=SHEETS_SCOPE
+    )
+    gc = gspread.authorize(creds)
+
+    # Open the spreadsheet by ID
+    sh = gc.open_by_key(SHEET_ID)
+    # Return the first worksheet
+    return sh.get_worksheet(0)
+
+def read_knowledge_base():
+    """
+    Reads all rows from the Google Sheet. 
+    Returns a list of strings (each row's content).
+    """
+    ws = get_gsheet()
+    data = ws.get_all_values()  # list of lists
+    # If your sheet's first column holds the text, extract it
+    knowledge = []
+    for row in data:
+        if row and row[0].strip():
+            knowledge.append(row[0].strip())
+    return knowledge
+
+def add_to_knowledge_base(text: str):
+    """
+    Appends a new row to the sheet with the given text.
+    """
+    ws = get_gsheet()
+    ws.append_row([text])
+
+##############################################
+# 6) Main IT Interface
 ##############################################
 def main_it_app():
     openai.api_key = OPENAI_API_KEY
 
-    st.title("IT Super Bot")
+    st.title("IT Super Bot with Google Sheets KB")
     st.write("You’re authenticated and from s-p.net — welcome!")
+
+    # Read knowledge base from sheet
+    knowledge_base = read_knowledge_base()
+    st.write(f"Current knowledge base has **{len(knowledge_base)}** entries.")
 
     user_input = st.text_input("Ask something or say 'Please add...' to store info:")
     if user_input:
         if user_input.lower().startswith("please add"):
-            st.write(f"(Pretending to store): {user_input[10:].strip()}")
+            new_info = user_input[10:].strip()
+            add_to_knowledge_base(new_info)
+            st.write(f"**Stored**: {new_info}")
         else:
+            # Build system prompt using knowledge base
+            if knowledge_base:
+                context = "\n".join(knowledge_base)
+                system_content = (
+                    "You are a helpful IT assistant. Here's your knowledge base:\n"
+                    f"{context}\n\n"
+                    "Use the above info if relevant when answering questions."
+                )
+            else:
+                system_content = "You are a helpful IT assistant. You have no knowledge base."
+
             response = openai.ChatCompletion.create(
                 model="gpt-4",
                 messages=[
-                    {"role": "system", "content": "You are a helpful IT assistant."},
+                    {"role": "system", "content": system_content},
                     {"role": "user", "content": user_input},
                 ],
                 max_tokens=200,
@@ -127,52 +187,48 @@ def main_it_app():
             st.write(answer)
 
 ##############################################
-# 6) Entry Point
+# 7) Entry Point
 ##############################################
 def run_app():
     query_params = st.experimental_get_query_params()
 
-    # If we see code/state, handle OAuth callback
+    # Handle OAuth callback
     if "code" in query_params and "state" in query_params:
         code_list = query_params["code"]
         state_list = query_params["state"]
 
-        # Extract single values
         code = code_list[0] if isinstance(code_list, list) else code_list
         returned_state = state_list[0] if isinstance(state_list, list) else state_list
 
-        # Check our stored state
         state_store = get_state_store()
         if returned_state not in state_store:
             st.error("State mismatch or missing.")
             st.stop()
         else:
-            # Remove used state
             del state_store[returned_state]
-
-            # Exchange code and verify domain
             try:
                 token_json = exchange_code_for_token(code)
                 verify_domain(token_json["id_token"])
                 st.experimental_set_query_params()
                 st.success("Authentication succeeded! Please click below or refresh.")
-                if st.button("Continue to IT Super Bot"):
-                    pass  # triggers a new rerun; session_state.authenticated = True
+                if st.button("Continue"):
+                    pass
                 st.stop()
             except Exception as e:
                 st.error(f"Authentication failed: {e}")
                 st.stop()
 
-    # If not authenticated, show sign-in
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
 
     if not st.session_state.authenticated:
         st.title("IT Super Bot (Login)")
-        st.write("Sign in with your s-p.net Google account.")
 
+        # Build auth URL
         auth_url = build_auth_url_and_store_state()
-        st.markdown(f"[**Sign in with Google**]({auth_url})")
+        # Link to open in same tab
+        link_html = f'<a href="{auth_url}" target="_self">Sign in with Google</a>'
+        st.markdown(link_html, unsafe_allow_html=True)
         st.stop()
     else:
         main_it_app()
