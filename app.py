@@ -1,6 +1,7 @@
 ##############################################
-# app.py - Debug version
-# We'll print environment details about Streamlit
+# app.py
+# Minimal Google OAuth example with a cache_resource store for 'state'
+# Fallback approach with no st.experimental_rerun (since it's missing).
 ##############################################
 
 import sys
@@ -18,55 +19,53 @@ from google.auth.transport import requests as google_requests
 import openai
 
 ##############################################
-# Extra Debug
+# 0) Debug Info
 ##############################################
-# 1) Print out Streamlit version
-# 2) Print out the file that provided the 'streamlit' module
-# 3) Check if 'experimental_rerun' is in dir(st)
+# Let's log & display debug about Streamlit
 st.write(f"**Streamlit version:** {st.__version__}")
-logging.info(f"Streamlit version reported by st.__version__: {st.__version__}")
-
 streamlit_file = sys.modules["streamlit"].__file__
 st.write(f"**Streamlit imported from:** {streamlit_file}")
-logging.info(f"Streamlit imported from: {streamlit_file}")
-
 has_exp_rerun = "experimental_rerun" in dir(st)
 st.write(f"**'experimental_rerun' in dir(st)?** {has_exp_rerun}")
+
+logging.basicConfig(level=logging.DEBUG)
+logging.info(f"Streamlit version reported by st.__version__: {st.__version__}")
+logging.info(f"Streamlit imported from: {streamlit_file}")
 logging.info(f"'experimental_rerun' in dir(st)? {has_exp_rerun}")
 
 ##############################################
-# Load environment variables
+# 1) Load environment variables
 ##############################################
 load_dotenv()
 
 ##############################################
-# Logging
+# 2) Constants
 ##############################################
-logging.basicConfig(level=logging.DEBUG)
-logging.info("Running Python code...")
-
-##############################################
-# Constants
-##############################################
-REDIRECT_URI = "https://it-super-bot.streamlit.app"
+REDIRECT_URI = "https://it-super-bot.streamlit.app"  # Use your domain here
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
-
-# Scopes to request from Google
 OAUTH_SCOPES = ["openid", "email", "profile"]
 
+
 ##############################################
-# 1) A "singleton" (cache_resource) store for valid states
+# 3) A "singleton" (cache_resource) store for valid states
 ##############################################
 @st.cache_resource
 def get_state_store() -> dict:
+    """
+    Returns a dictionary that will persist as long as the app
+    isn't fully shut down or redeployed.
+    Keys: state strings
+    Values: True (or any truthy value)
+    """
     return {}
 
+
 ##############################################
-# 2) Function: Generate an auth URL manually & store the state in our dict
+# 4) Build auth URL & store random state
 ##############################################
 def build_auth_url_and_store_state() -> str:
     state_store = get_state_store()
@@ -87,8 +86,9 @@ def build_auth_url_and_store_state() -> str:
     logging.debug(f"Generated new state={random_state} and stored in dict.")
     return auth_url
 
+
 ##############################################
-# 3) Function: Exchange code for token
+# 5) Exchange code for token
 ##############################################
 def exchange_code_for_token(code: str) -> dict:
     token_data = {
@@ -103,8 +103,9 @@ def exchange_code_for_token(code: str) -> dict:
         raise ValueError(f"Token exchange failed: {resp.text}")
     return resp.json()
 
+
 ##############################################
-# 4) Domain Check
+# 6) Check domain
 ##############################################
 def verify_domain(id_token_jwt: str):
     info = id_token.verify_oauth2_token(
@@ -118,13 +119,14 @@ def verify_domain(id_token_jwt: str):
     st.session_state.authenticated = True
     return info
 
+
 ##############################################
-# 5) The Main IT Interface
+# 7) The Main IT Interface
 ##############################################
 def main_it_app():
     openai.api_key = os.getenv("OPENAI_API_KEY")
 
-    st.title("IT Super Bot - Debug Version")
+    st.title("IT Super Bot - Fallback (No experimental_rerun)")
     st.write("You're authenticated and from s-p.net—welcome!")
 
     user_input = st.text_input("Ask something or say 'Please add...' to store info:")
@@ -140,26 +142,17 @@ def main_it_app():
             )
             st.write(response.choices[0].text.strip())
 
-##############################################
-# 6) Attempt a rerun safely
-##############################################
-def safe_rerun():
-    if hasattr(st, "experimental_rerun"):
-        st.experimental_rerun()
-    else:
-        st.warning("Unable to do an automatic re-run. Please refresh your browser manually.")
-        st.stop()
 
 ##############################################
-# 7) The Entry Point
+# 8) Entry point
 ##############################################
 def run_app():
-    # Use st.experimental_get_query_params for now
+    # Using st.experimental_get_query_params (with deprecation warning)
     query_params = st.experimental_get_query_params()
     logging.debug(f"Query params: {query_params}")
-
     st.write("**DEBUG**: experimental_get_query_params:", query_params)
 
+    # If OAuth callback is present:
     if "code" in query_params and "state" in query_params:
         code_list = query_params["code"]
         state_list = query_params["state"]
@@ -168,28 +161,43 @@ def run_app():
         returned_state = state_list[0] if isinstance(state_list, list) else state_list
 
         logging.debug(f"Returned code={code}, state={returned_state}")
-        state_store = get_state_store()
 
+        state_store = get_state_store()
         if returned_state not in state_store:
             st.error("State mismatch or missing. (No record in our state store.)")
             st.stop()
         else:
+            # Remove used state
             del state_store[returned_state]
             try:
                 token_json = exchange_code_for_token(code)
                 verify_domain(token_json["id_token"])
+                # Clear query params to remove code & state
                 st.experimental_set_query_params()
-                safe_rerun()
+
+                # Since st.experimental_rerun doesn't exist in your environment,
+                # we’ll show a "Continue" button. Once the user clicks it, they'll
+                # get a new page load with no code/state in the URL, and st.session_state.authenticated = True.
+                st.success("Authentication succeeded! Please click below or refresh.")
+                if st.button("Click to continue"):
+                    # Just do nothing — the button click triggers a re-run automatically,
+                    # which should move on to the main_it_app() since authenticated is True.
+                    pass
+
+                # We stop to avoid showing the sign-in again beneath the success message.
+                st.stop()
+
             except Exception as e:
                 st.error(f"Authentication failed: {e}")
                 logging.error(f"Auth error: {e}")
                 st.stop()
 
+    # If not auth flow in progress or not completed:
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
 
     if not st.session_state.authenticated:
-        st.title("IT Super Bot - Debug Version")
+        st.title("IT Super Bot - Fallback (No experimental_rerun)")
         st.write("Sign in with your s-p.net Google account.")
 
         auth_url = build_auth_url_and_store_state()
