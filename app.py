@@ -1,9 +1,9 @@
 ##############################################
 # app.py
-# IT Super Bot
-# - Google OAuth (opens in new tab, original approach)
-# - Simple ephemeral knowledge base ("Please add...")
-# - Using openai==0.28.1 with GPT-4
+# Minimal Google OAuth example with a cache_resource store for 'state'
+# - No debugging prints
+# - Fallback approach for re-run (no st.experimental_rerun)
+# - Using openai==0.28.1 (ChatCompletion) with GPT-4
 ##############################################
 
 import os
@@ -33,31 +33,24 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+
+# OAuth scopes for basic user info
 OAUTH_SCOPES = ["openid", "email", "profile"]
 
 ##############################################
-# 1) Cache Resource for State & Knowledge Base
+# 1) Singleton store for valid states
 ##############################################
-
 @st.cache_resource
 def get_state_store() -> dict:
     """
-    Persists valid OAuth states until the app redeploys.
-    Keys: random state strings
-    Values: True/any truthy value
+    Returns a dictionary that persists until the app is redeployed.
+    Keys: state strings
+    Values: True (or any truthy value)
     """
     return {}
 
-@st.cache_resource
-def get_knowledge_base() -> list:
-    """
-    Persists knowledge base content in memory until the app redeploys.
-    Returns a list of strings (each "Please add" entry).
-    """
-    return []
-
 ##############################################
-# 2) Build Auth URL
+# 2) Build the auth URL & store random state
 ##############################################
 def build_auth_url_and_store_state() -> str:
     state_store = get_state_store()
@@ -93,7 +86,7 @@ def exchange_code_for_token(code: str) -> dict:
     return resp.json()
 
 ##############################################
-# 4) Verify Domain
+# 4) Verify s-p.net domain
 ##############################################
 def verify_domain(id_token_jwt: str):
     info = id_token.verify_oauth2_token(
@@ -114,40 +107,17 @@ def main_it_app():
     openai.api_key = OPENAI_API_KEY
 
     st.title("IT Super Bot")
-
-    # Grab the knowledge base
-    knowledge_base = get_knowledge_base()
-
-    st.write("You're authenticated and from s-p.net — welcome!")
-    st.write(f"Current knowledge base has **{len(knowledge_base)}** entries.")
+    st.write("You’re authenticated and from s-p.net — welcome!")
 
     user_input = st.text_input("Ask something or say 'Please add...' to store info:")
     if user_input:
-        # Check if user wants to add to the knowledge base
         if user_input.lower().startswith("please add"):
-            new_info = user_input[10:].strip()
-            knowledge_base.append(new_info)
-            st.write(f"**Stored in knowledge base**: {new_info}")
-
+            st.write(f"(Pretending to store): {user_input[10:].strip()}")
         else:
-            # Incorporate the knowledge base into GPT context
-            if knowledge_base:
-                knowledge_context = "\n".join(knowledge_base)
-                system_content = (
-                    "You are a helpful IT assistant. "
-                    "Below is your knowledge base, which can help answer questions:\n"
-                    f"{knowledge_context}\n\n"
-                    "Use this information if relevant."
-                )
-            else:
-                system_content = (
-                    "You are a helpful IT assistant. You currently have no knowledge base."
-                )
-
             response = openai.ChatCompletion.create(
                 model="gpt-4",
                 messages=[
-                    {"role": "system", "content": system_content},
+                    {"role": "system", "content": "You are a helpful IT assistant."},
                     {"role": "user", "content": user_input},
                 ],
                 max_tokens=200,
@@ -162,43 +132,47 @@ def main_it_app():
 def run_app():
     query_params = st.experimental_get_query_params()
 
-    # If we see code/state, handle callback
+    # If we see code/state, handle OAuth callback
     if "code" in query_params and "state" in query_params:
         code_list = query_params["code"]
         state_list = query_params["state"]
 
+        # Extract single values
         code = code_list[0] if isinstance(code_list, list) else code_list
         returned_state = state_list[0] if isinstance(state_list, list) else state_list
 
+        # Check our stored state
         state_store = get_state_store()
         if returned_state not in state_store:
             st.error("State mismatch or missing.")
             st.stop()
         else:
+            # Remove used state
             del state_store[returned_state]
+
+            # Exchange code and verify domain
             try:
                 token_json = exchange_code_for_token(code)
                 verify_domain(token_json["id_token"])
                 st.experimental_set_query_params()
                 st.success("Authentication succeeded! Please click below or refresh.")
                 if st.button("Continue to IT Super Bot"):
-                    pass  # triggers a new rerun; st.session_state.authenticated is True
+                    pass  # triggers a new rerun; session_state.authenticated = True
                 st.stop()
             except Exception as e:
                 st.error(f"Authentication failed: {e}")
                 st.stop()
 
+    # If not authenticated, show sign-in
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
 
     if not st.session_state.authenticated:
         st.title("IT Super Bot (Login)")
+        st.write("Sign in with your s-p.net Google account.")
 
         auth_url = build_auth_url_and_store_state()
-
-        # REVERTED to the original Markdown approach, which typically opens a new tab
         st.markdown(f"[**Sign in with Google**]({auth_url})")
-
         st.stop()
     else:
         main_it_app()
