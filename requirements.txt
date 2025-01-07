@@ -4,7 +4,7 @@ python-dotenv==1.0.1
 requests==2.32.3
 
 # For future PDF processing
-pypdf2==3.10.1
+pypdf2
 
 # For future Google Sheets integration
 gspread==5.7.2
