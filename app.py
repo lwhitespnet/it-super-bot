@@ -1,61 +1,71 @@
 ##############################################
 # app.py
-# Minimal password-protected Streamlit app (with Submit button)
-# w/ ephemeral knowledge base & GPT-4
-# Classic chat-style interface
-# - Assistant: left-aligned & bold
-# - User: right-aligned & italic
-# - Extra spacing between messages
+# Password-protected Streamlit app using Pinecone
+# for persistent "Please add..." storage + GPT-4 chat
+# - Assistant: bold/left
+# - User: italic/right
+# - Extra spacing
 ##############################################
 
 import streamlit as st
 import openai
+import pinecone
+import uuid
 
 ##############################################
-# 0) Initialize Session State
+# 0) Session Init
 ##############################################
 def init_session():
-    """Ensure all session state variables exist."""
+    """
+    Ensure all session-state variables exist.
+    """
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
 
-    # We'll store the entire chat (user & assistant) in this list
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
 
-    # For the password input, we store in session_state as well
+    # We'll store user input for password in session_state
     if "input_password" not in st.session_state:
         st.session_state.input_password = ""
 
 ##############################################
-# 1) Ephemeral Knowledge Base
+# 1) Pinecone Initialization
 ##############################################
 @st.cache_resource
-def get_knowledge_base() -> list:
+def init_pinecone():
     """
-    A simple list of knowledge base entries (strings).
-    Stored in memory until the app is redeployed.
+    Initialize Pinecone once (cached).
+    Create or connect to the 'it-super-bot' index (1536-dim, cosine).
+    Returns a reference to the index.
     """
-    return []
+    pinecone.init(
+        api_key=st.secrets["PINECONE_API_KEY"],
+        environment=st.secrets["PINECONE_ENV"]
+    )
+
+    # If index doesn't exist, create it
+    index_name = "it-super-bot"  # change if needed
+    if index_name not in pinecone.list_indexes():
+        pinecone.create_index(index_name, dimension=1536, metric="cosine")
+
+    # Return the index object
+    return pinecone.Index(index_name)
 
 ##############################################
-# 2) Password Gate (Using a Submit Button)
+# 2) Password Gate (Submit Button)
 ##############################################
 def password_gate():
-    """
-    Shows a password input box and a "Submit" button.
-    If password is correct, authenticate immediately.
-    If incorrect, show an error and stop.
-    """
     st.title("Please enter the app password")
 
-    # Bind the text_input to st.session_state.input_password
+    # Password input box
     st.text_input(
         "Password:",
         type="password",
         key="input_password"
     )
 
+    # Submit button
     if st.button("Submit"):
         pwd = st.session_state.input_password.strip()
         if pwd == st.secrets["app_password"]:
@@ -66,51 +76,83 @@ def password_gate():
             st.stop()
 
 ##############################################
-# 3) Handle Chat Input
+# 3) Pinecone Helpers (Add + Query)
+##############################################
+def add_text_to_pinecone(text: str, index):
+    """
+    Takes the text, creates an embedding, upserts to Pinecone with unique ID.
+    """
+    emb_resp = openai.Embedding.create(
+        model="text-embedding-ada-002",
+        input=[text]
+    )
+    embedding = emb_resp["data"][0]["embedding"]
+    vector_id = str(uuid.uuid4())
+
+    index.upsert([(vector_id, embedding, {"original_text": text})])
+
+def query_pinecone(query: str, index, top_k=3):
+    """
+    Embeds query, searches Pinecone, returns top matched texts.
+    """
+    emb_resp = openai.Embedding.create(
+        model="text-embedding-ada-002",
+        input=[query]
+    )
+    query_emb = emb_resp["data"][0]["embedding"]
+
+    results = index.query(vector=query_emb, top_k=top_k, include_metadata=True)
+    retrieved_texts = []
+    if results and results.matches:
+        for match in results.matches:
+            retrieved_texts.append(match.metadata["original_text"])
+    return retrieved_texts
+
+##############################################
+# 4) Handle Chat Input
 ##############################################
 def handle_user_input():
     """
     Called when the user hits Enter in the chat_input.
-    We append the user input to chat_history, do GPT call if needed.
+    - If "Please add...", store in Pinecone
+    - Else query Pinecone, pass top results to GPT
+    - Then add GPT response to chat history
     """
-    kb = get_knowledge_base()
+    index = init_pinecone()  # ensure we have the Pinecone index
     user_text = st.session_state["chat_input"].strip()
-
     if not user_text:
         return
 
-    # Add user's message to chat history
+    # Add the user message to chat history
     st.session_state.chat_history.append({"role": "user", "content": user_text})
 
-    # Check if "Please add..."
     if user_text.lower().startswith("please add"):
-        new_data = user_text[10:].strip()
-        kb.append(new_data)
-        # Let the user see a confirmation
-        st.session_state.chat_history.append(
-            {
-                "role": "assistant",
-                "content": f"Added to knowledge base: {new_data}"
-            }
-        )
+        # e.g. "Please add We installed a new router at Site X"
+        to_store = user_text[10:].strip()
+        add_text_to_pinecone(to_store, index)
+        # Add a quick confirmation from the assistant
+        st.session_state.chat_history.append({
+            "role": "assistant",
+            "content": f"Added to knowledge base: {to_store}"
+        })
     else:
-        # Build the system prompt by including the entire knowledge base
-        if kb:
-            kb_text = "\n".join(kb)
-            kb_context = (
-                "You have the following ephemeral knowledge base:\n"
-                f"{kb_text}\n\n"
-                "In your answers, use this info if relevant."
-            )
-        else:
-            kb_context = "You have no knowledge base yet."
+        # Query Pinecone for context
+        relevant_texts = query_pinecone(user_text, index, top_k=3)
+        context = "\n".join(relevant_texts)
 
-        # We'll use the entire chat_history so the assistant has conversation context
+        # Build system prompt with that context
+        system_prompt = (
+            "You are a helpful IT assistant.\n"
+            "Below is relevant context from your knowledge base:\n"
+            f"{context}\n\n"
+            "Use this info if relevant when answering."
+        )
+
+        # Build full conversation
         conversation = []
-        # Start with system message that includes knowledge base context
-        conversation.append({"role": "system", "content": kb_context})
-
-        # Then append the full user-assistant exchange so far
+        # Insert system message first
+        conversation.append({"role": "system", "content": system_prompt})
+        # Add the entire chat history
         for msg in st.session_state.chat_history:
             conversation.append(msg)
 
@@ -123,7 +165,6 @@ def handle_user_input():
                 temperature=0.7,
             )
             answer = response["choices"][0]["message"]["content"].strip()
-            # Add the GPT answer to the chat history
             st.session_state.chat_history.append(
                 {"role": "assistant", "content": answer}
             )
@@ -132,36 +173,35 @@ def handle_user_input():
                 {"role": "assistant", "content": f"OpenAI error: {e}"}
             )
 
-    # Clear the input box
+    # Clear user input
     st.session_state["chat_input"] = ""
 
 ##############################################
-# 4) Main Chat Interface
+# 5) Main Chat Interface
 ##############################################
 def main_app():
+    # You likely store openai_api_key in st.secrets as well
     openai.api_key = st.secrets["openai_api_key"]
 
-    st.title("IT Super Bot")
+    # Title
+    st.title("IT Super Bot (Using Pinecone)")
 
-    kb = get_knowledge_base()
-    st.write(f"**Knowledge Base Items:** {len(kb)}")
-
-    # Display the conversation so far
+    # Display chat history
     for msg in st.session_state.chat_history:
         if msg["role"] == "assistant":
-            # Left-align, bold, extra margin
+            # Bold, left, spacing
             st.markdown(
                 f"<div style='text-align:left; font-weight:bold; margin:10px 0;'>{msg['content']}</div>",
                 unsafe_allow_html=True
             )
         elif msg["role"] == "user":
-            # Right-align, italic, extra margin
+            # Italic, right, spacing
             st.markdown(
                 f"<div style='text-align:right; font-style:italic; margin:10px 0;'>{msg['content']}</div>",
                 unsafe_allow_html=True
             )
 
-    # Chat input at the bottom
+    # The text input for new messages
     st.text_input(
         "Type your message (or 'Please add...' to store info)",
         key="chat_input",
@@ -170,7 +210,7 @@ def main_app():
     )
 
 ##############################################
-# 5) The Entry Point
+# 6) The Entry Point
 ##############################################
 def run_app():
     init_session()
