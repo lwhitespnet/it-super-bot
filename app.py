@@ -133,7 +133,7 @@ def handle_user_input():
 
 def main_app():
     openai.api_key = st.secrets["openai_api_key"]
-    st.title("IT Super Bot w/ Pinecone (Correct Index Name)")
+    st.title("IT Super Bot")
 
     for msg in st.session_state.chat_history:
         if msg["role"] == "assistant":
