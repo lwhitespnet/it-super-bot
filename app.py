@@ -216,7 +216,7 @@ def main_app():
     )
 
     st.write("---")
-    st.subheader("Upload a PDF or text file to add it to Pinecone")
+    st.subheader("Upload a .pdf or .txt file")
 
     # Single uploader that accepts PDF or TXT
     uploaded_file = st.file_uploader("Choose a file", type=["pdf", "txt"])
