@@ -1,9 +1,11 @@
 ##############################################
 # app.py
-# Minimal password-protected Streamlit app
+# Minimal password-protected Streamlit app (with Submit button)
 # w/ ephemeral knowledge base & GPT-4
-# - Password submits on Enter
-# - Classic chat interface: user msg right-aligned, assistant msg left-aligned & bold
+# Classic chat-style interface
+# - Assistant: left-aligned & bold
+# - User: right-aligned & italic
+# - Extra spacing between messages
 ##############################################
 
 import streamlit as st
@@ -30,47 +32,46 @@ def init_session():
 ##############################################
 @st.cache_resource
 def get_knowledge_base() -> list:
-    """A simple list of knowledge base entries (strings)."""
+    """
+    A simple list of knowledge base entries (strings).
+    Stored in memory until the app is redeployed.
+    """
     return []
 
 ##############################################
-# 2) Password Auth via on_change
+# 2) Password Gate (Using a Submit Button)
 ##############################################
-def attempt_auth():
-    """Called when user presses Enter on the password box."""
-    pwd = st.session_state.input_password.strip()
-    if pwd:
-        if pwd == st.secrets["app_password"]:
-            st.session_state.authenticated = True
-            st.stop()  # Stop here; next run sees authenticated==True
-        else:
-            st.error("Incorrect password. Try again.")
-            # We keep st.session_state.authenticated = False
-            # so the user can retype the password
-            # Optionally, clear st.session_state.input_password if you want
-            # st.session_state.input_password = ""
-            st.stop()
-
 def password_gate():
     """
-    Shows a password input box. If correct password is typed,
-    we set authenticated = True in attempt_auth().
+    Shows a password input box and a "Submit" button.
+    If password is correct, authenticate immediately.
+    If incorrect, show an error and stop.
     """
     st.title("Please enter the app password")
+
+    # Bind the text_input to st.session_state.input_password
     st.text_input(
         "Password:",
         type="password",
-        key="input_password",
-        on_change=attempt_auth
+        key="input_password"
     )
 
+    if st.button("Submit"):
+        pwd = st.session_state.input_password.strip()
+        if pwd == st.secrets["app_password"]:
+            st.session_state.authenticated = True
+            st.stop()  # Next run sees authenticated=True
+        else:
+            st.error("Incorrect password. Try again.")
+            st.stop()
+
 ##############################################
-# 3) Handle Chat Input in a Callback
+# 3) Handle Chat Input
 ##############################################
 def handle_user_input():
     """
     Called when the user hits Enter in the chat_input.
-    We append user input to chat_history, do GPT call if needed.
+    We append the user input to chat_history, do GPT call if needed.
     """
     kb = get_knowledge_base()
     user_text = st.session_state["chat_input"].strip()
@@ -78,14 +79,14 @@ def handle_user_input():
     if not user_text:
         return
 
-    # Add the user's message to chat history
+    # Add user's message to chat history
     st.session_state.chat_history.append({"role": "user", "content": user_text})
 
-    # If user says "Please add...", store in ephemeral KB
+    # Check if "Please add..."
     if user_text.lower().startswith("please add"):
         new_data = user_text[10:].strip()
         kb.append(new_data)
-        # We'll also append a quick assistant message so the user sees confirmation
+        # Let the user see a confirmation
         st.session_state.chat_history.append(
             {
                 "role": "assistant",
@@ -106,12 +107,14 @@ def handle_user_input():
 
         # We'll use the entire chat_history so the assistant has conversation context
         conversation = []
+        # Start with system message that includes knowledge base context
         conversation.append({"role": "system", "content": kb_context})
 
+        # Then append the full user-assistant exchange so far
         for msg in st.session_state.chat_history:
             conversation.append(msg)
 
-        # Now call GPT-4
+        # GPT-4 call
         try:
             response = openai.ChatCompletion.create(
                 model="gpt-4",
@@ -120,6 +123,7 @@ def handle_user_input():
                 temperature=0.7,
             )
             answer = response["choices"][0]["message"]["content"].strip()
+            # Add the GPT answer to the chat history
             st.session_state.chat_history.append(
                 {"role": "assistant", "content": answer}
             )
@@ -142,27 +146,27 @@ def main_app():
     kb = get_knowledge_base()
     st.write(f"**Knowledge Base Items:** {len(kb)}")
 
-    # Display all chat messages from top to bottom
+    # Display the conversation so far
     for msg in st.session_state.chat_history:
         if msg["role"] == "assistant":
-            # Left-align & bold
+            # Left-align, bold, extra margin
             st.markdown(
-                f"<p style='text-align:left;'><b>{msg['content']}</b></p>",
+                f"<div style='text-align:left; font-weight:bold; margin:10px 0;'>{msg['content']}</div>",
                 unsafe_allow_html=True
             )
         elif msg["role"] == "user":
-            # Right-align, normal text
+            # Right-align, italic, extra margin
             st.markdown(
-                f"<p style='text-align:right;'>{msg['content']}</p>",
+                f"<div style='text-align:right; font-style:italic; margin:10px 0;'>{msg['content']}</div>",
                 unsafe_allow_html=True
             )
 
-    # The chat input at the bottom
+    # Chat input at the bottom
     st.text_input(
         "Type your message (or 'Please add...' to store info)",
         key="chat_input",
         on_change=handle_user_input,
-        placeholder="Ask me something or say 'Please add...' to store info."
+        placeholder="Ask me something or say 'Please add...'..."
     )
 
 ##############################################
@@ -171,6 +175,7 @@ def main_app():
 def run_app():
     init_session()
 
+    # If not authenticated, show password gate
     if not st.session_state.authenticated:
         password_gate()
         st.stop()
