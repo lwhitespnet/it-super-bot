@@ -3,13 +3,6 @@ openai==0.28.1
 python-dotenv==1.0.1
 requests==2.32.3
 
-# For future PDF processing
 pypdf2
 
-# For future Google Sheets integration
-gspread==5.7.2
-google-auth==2.20.0
-google-auth-oauthlib==1.2.1
-
-# For future Pinecone integration
 pinecone-client==2.2.8
