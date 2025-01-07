@@ -1,7 +1,8 @@
 ##############################################
 # app.py
 # Minimal password-protected Streamlit app
-# w/ ephemeral knowledge base & GPT-4, no st.experimental_rerun
+# w/ ephemeral knowledge base & GPT-4,
+# no st.experimental_rerun, but clears text box on submit
 ##############################################
 
 import streamlit as st
@@ -45,13 +46,18 @@ def get_knowledge_base() -> list:
 def main_app():
     openai.api_key = st.secrets["openai_api_key"]
 
-    st.title("IT Super Bot (Password-Protected)")
+    st.title("IT Super Bot")
 
     # Load ephemeral KB
     kb = get_knowledge_base()
 
     st.write(f"You have **{len(kb)}** items in the knowledge base so far.")
-    user_input = st.text_input("Ask something or say 'Please add...' to store info:")
+
+    # Use a key so we can clear the input afterward
+    user_input = st.text_input(
+        "Ask something or say 'Please add...' to store info:",
+        key="chat_input"
+    )
 
     if user_input:
         if user_input.lower().startswith("please add"):
@@ -86,6 +92,10 @@ def main_app():
                 st.write(answer)
             except Exception as e:
                 st.error(f"OpenAI API error: {e}")
+
+        # Clear the text_input by resetting session_state and stopping
+        st.session_state.chat_input = ""
+        st.stop()
 
 ##############################################
 # 4) The Entry Point
