@@ -2,8 +2,8 @@
 # app.py
 # Minimal password-protected Streamlit app
 # w/ ephemeral knowledge base & GPT-4
-# Classic chat-style interface,
-# using a Submit button for the password
+# - Password submits on Enter
+# - Classic chat interface: user msg right-aligned, assistant msg left-aligned & bold
 ##############################################
 
 import streamlit as st
@@ -13,9 +13,7 @@ import openai
 # 0) Initialize Session State
 ##############################################
 def init_session():
-    """
-    Ensure all session state variables exist.
-    """
+    """Ensure all session state variables exist."""
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
 
@@ -23,7 +21,7 @@ def init_session():
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
 
-    # For the password input, we use a key so we can read from session_state
+    # For the password input, we store in session_state as well
     if "input_password" not in st.session_state:
         st.session_state.input_password = ""
 
@@ -36,31 +34,38 @@ def get_knowledge_base() -> list:
     return []
 
 ##############################################
-# 2) Password Gate (Using a Button)
+# 2) Password Auth via on_change
 ##############################################
-def password_gate():
-    """
-    Shows a password input box and a "Submit" button.
-    If password is correct, authenticate immediately.
-    If incorrect, show an error and stop.
-    """
-    st.title("Please enter the app password")
-
-    # We bind the text_input to session_state.input_password
-    st.text_input("Password:", type="password", key="input_password")
-
-    if st.button("Submit"):
-        pwd = st.session_state.input_password
+def attempt_auth():
+    """Called when user presses Enter on the password box."""
+    pwd = st.session_state.input_password.strip()
+    if pwd:
         if pwd == st.secrets["app_password"]:
             st.session_state.authenticated = True
-            # Once authenticated, we forcibly stop so that the next run sees the new state
-            st.stop()
+            st.stop()  # Stop here; next run sees authenticated==True
         else:
             st.error("Incorrect password. Try again.")
+            # We keep st.session_state.authenticated = False
+            # so the user can retype the password
+            # Optionally, clear st.session_state.input_password if you want
+            # st.session_state.input_password = ""
             st.stop()
 
+def password_gate():
+    """
+    Shows a password input box. If correct password is typed,
+    we set authenticated = True in attempt_auth().
+    """
+    st.title("Please enter the app password")
+    st.text_input(
+        "Password:",
+        type="password",
+        key="input_password",
+        on_change=attempt_auth
+    )
+
 ##############################################
-# 3) Handle User Input in a Callback
+# 3) Handle Chat Input in a Callback
 ##############################################
 def handle_user_input():
     """
@@ -101,10 +106,8 @@ def handle_user_input():
 
         # We'll use the entire chat_history so the assistant has conversation context
         conversation = []
-        # System message includes the knowledge base context
         conversation.append({"role": "system", "content": kb_context})
 
-        # Then append all previous user/assistant messages
         for msg in st.session_state.chat_history:
             conversation.append(msg)
 
@@ -117,7 +120,6 @@ def handle_user_input():
                 temperature=0.7,
             )
             answer = response["choices"][0]["message"]["content"].strip()
-            # Add the GPT answer to chat history
             st.session_state.chat_history.append(
                 {"role": "assistant", "content": answer}
             )
@@ -143,11 +145,19 @@ def main_app():
     # Display all chat messages from top to bottom
     for msg in st.session_state.chat_history:
         if msg["role"] == "assistant":
-            st.markdown(f"**Assistant:** {msg['content']}")
+            # Left-align & bold
+            st.markdown(
+                f"<p style='text-align:left;'><b>{msg['content']}</b></p>",
+                unsafe_allow_html=True
+            )
         elif msg["role"] == "user":
-            st.markdown(f"**You:** {msg['content']}")
+            # Right-align, normal text
+            st.markdown(
+                f"<p style='text-align:right;'>{msg['content']}</p>",
+                unsafe_allow_html=True
+            )
 
-    # The chat input
+    # The chat input at the bottom
     st.text_input(
         "Type your message (or 'Please add...' to store info)",
         key="chat_input",
