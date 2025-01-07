@@ -1,7 +1,7 @@
 ##############################################
 # app.py
 # GPT-4 Chat + Pinecone (serverless) + PDF/TXT uploads
-# Protected by password (single-click login fix)
+# Protected by password
 # "Please add..." => upserts text
 # PDF or text file => parse -> chunk -> embed -> Pinecone
 # Chat interface (assistant bold/left, user italic/right)
@@ -31,11 +31,9 @@ def password_gate():
         pwd = st.session_state.input_password.strip()
         if pwd == st.secrets["app_password"]:
             st.session_state.authenticated = True
-            # Instead of st.stop(), we rerun so the new state is immediately recognized:
-            st.experimental_rerun()
+            st.stop()
         else:
             st.error("Incorrect password. Try again.")
-            # We keep st.stop() here so user can retry in the same screen:
             st.stop()
 
 ##############################################
@@ -109,6 +107,7 @@ def parse_file(uploaded_file):
         full_text = ""
         for page in reader.pages:
             full_text += page.extract_text() + "\n"
+        # chunk
         return chunk_text(full_text)
 
     elif ext == "txt":
@@ -241,7 +240,7 @@ def run_app():
 
     if not st.session_state.authenticated:
         password_gate()
-        # No st.stop() after password_gate() so we can keep going if user typed wrong pass
+        st.stop()
     else:
         main_app()
 
