@@ -2,14 +2,22 @@
 # app.py
 # Minimal password-protected Streamlit app
 # w/ ephemeral knowledge base & GPT-4,
-# no st.experimental_rerun, but clears text box on submit
+# using a callback to clear the text input
 ##############################################
 
 import streamlit as st
 import openai
 
 ##############################################
-# 1) Password Gate
+# 1) Ephemeral Knowledge Base
+##############################################
+@st.cache_resource
+def get_knowledge_base() -> list:
+    """A simple list of knowledge base entries (strings)."""
+    return []
+
+##############################################
+# 2) Password Gate
 ##############################################
 def password_gate():
     """Prompt for a password and store auth in session_state if correct."""
@@ -33,31 +41,15 @@ def password_gate():
         return
 
 ##############################################
-# 2) Ephemeral Knowledge Base
+# 3) The Callback for Handling User Input
 ##############################################
-@st.cache_resource
-def get_knowledge_base() -> list:
-    """A simple list of knowledge base entries (strings)."""
-    return []
-
-##############################################
-# 3) The Main App
-##############################################
-def main_app():
-    openai.api_key = st.secrets["openai_api_key"]
-
-    st.title("IT Super Bot")
-
-    # Load ephemeral KB
+def handle_user_input():
+    """
+    This function is called automatically whenever
+    the user hits Enter or the text_input changes.
+    """
     kb = get_knowledge_base()
-
-    st.write(f"You have **{len(kb)}** items in the knowledge base so far.")
-
-    # Use a key so we can clear the input afterward
-    user_input = st.text_input(
-        "Ask something or say 'Please add...' to store info:",
-        key="chat_input"
-    )
+    user_input = st.session_state.chat_input  # read what's currently typed
 
     if user_input:
         if user_input.lower().startswith("please add"):
@@ -93,19 +85,36 @@ def main_app():
             except Exception as e:
                 st.error(f"OpenAI API error: {e}")
 
-        # Clear the text_input by resetting session_state and stopping
-        st.session_state.chat_input = ""
-        st.stop()
+    # Clear the input so it resets the text box
+    st.session_state.chat_input = ""
 
 ##############################################
-# 4) The Entry Point
+# 4) The Main App
+##############################################
+def main_app():
+    openai.api_key = st.secrets["openai_api_key"]
+
+    st.title("IT Super Bot")
+
+    kb = get_knowledge_base()
+    st.write(f"You have **{len(kb)}** items in the knowledge base so far.")
+
+    # We set up the text_input with a key and an on_change callback
+    st.text_input(
+        "Ask something or say 'Please add...' to store info:",
+        key="chat_input",
+        on_change=handle_user_input
+    )
+
+##############################################
+# 5) Entry Point
 ##############################################
 def run_app():
-    # Step 1: Check password
+    # Check password
     password_gate()
 
-    # Step 2: If authenticated, show main app
-    if "authenticated" in st.session_state and st.session_state.authenticated:
+    # If authenticated, show main app
+    if st.session_state.authenticated:
         main_app()
 
 if __name__ == "__main__":
