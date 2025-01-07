@@ -1,69 +1,61 @@
 ##############################################
 # app.py
 # Password-protected Streamlit app w/ Pinecone
-# using the new approach (host-based) for serverless indexes.
+# for a serverless index, referencing the host directly.
 #
 # GPT-4 chat:
 # - "Please add..." => upserts to Pinecone
-# - Normal Q => queries Pinecone for context
+# - Normal Q => queries Pinecone
 # - Assistant is bold/left, user is italic/right
 ##############################################
 
 import streamlit as st
 import openai
 import uuid
-from pinecone import Pinecone
+import pinecone  # not from pinecone import Pinecone
 
 ##############################################
 # 0) Session & Setup
 ##############################################
 def init_session():
-    """
-    Ensure all session-state variables exist.
-    """
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
 
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
 
-    # We'll store user input for password in session_state
     if "input_password" not in st.session_state:
         st.session_state.input_password = ""
 
 def get_pinecone_index():
     """
-    Create a Pinecone client using the new approach,
-    returning a pointer to your serverless index via its full host name.
+    Creates an index object that references your serverless Pinecone host.
+    We do NOT call pinecone.init(...) or list_indexes().
     """
-    # Retrieve secrets from .streamlit/secrets.toml
-    pc = Pinecone(
-        api_key=st.secrets["PINECONE_API_KEY"]
-        # environment not needed for serverless host approach
+    # 1) "Init" with your API key only—no environment
+    pinecone.init(api_key=st.secrets["PINECONE_API_KEY"])
+
+    # 2) Create the index object with a dummy "name" plus host=...
+    #    The actual name doesn't matter in serverless mode, but we must pass something.
+    #    The 'host' must match the full host from your Pinecone dashboard.
+    index = pinecone.Index(
+        "unused_name_here",
+        host=st.secrets["PINECONE_INDEX_HOST"]  # e.g. "itsuperbot-xxxx.svc....pinecone.io"
     )
-    # e.g. "itsuperbot-xy83vwf.svc.aped-4627-b74a.pinecone.io"
-    return pc.Index(st.secrets["PINECONE_INDEX_HOST"])
+    return index
 
 ##############################################
 # 1) Password Gate
 ##############################################
 def password_gate():
-    """Show a password box + Submit. If correct, set authenticated=True."""
     st.title("Please enter the app password")
+    st.text_input("Password:", type="password", key="input_password")
 
-    # Password input
-    st.text_input(
-        "Password:",
-        type="password",
-        key="input_password"
-    )
-
-    # Submit button
     if st.button("Submit"):
         pwd = st.session_state.input_password.strip()
         if pwd == st.secrets["app_password"]:
             st.session_state.authenticated = True
-            st.stop()  # Next run sees authenticated=True
+            st.stop()
         else:
             st.error("Incorrect password. Try again.")
             st.stop()
@@ -81,7 +73,6 @@ def add_text_to_pinecone(text: str):
     vector_id = str(uuid.uuid4())
 
     index = get_pinecone_index()
-    # Upsert in the Pinecone "vectors" format
     index.upsert([
         {
             "id": vector_id,
@@ -91,9 +82,7 @@ def add_text_to_pinecone(text: str):
     ])
 
 def query_pinecone(query: str, top_k=3):
-    """
-    Embed the query, search Pinecone, return top matched texts.
-    """
+    """Embed query, search Pinecone, return top matched texts."""
     emb_resp = openai.Embedding.create(
         model="text-embedding-ada-002",
         input=[query]
@@ -117,12 +106,6 @@ def query_pinecone(query: str, top_k=3):
 # 3) Handle Chat Input
 ##############################################
 def handle_user_input():
-    """
-    Called when user hits Enter in the chat_input.
-    - "Please add..." => store in Pinecone
-    - Else => query Pinecone, pass context to GPT
-    - Then show GPT answer
-    """
     user_text = st.session_state["chat_input"].strip()
     if not user_text:
         return
@@ -131,7 +114,6 @@ def handle_user_input():
     st.session_state.chat_history.append({"role": "user", "content": user_text})
 
     if user_text.lower().startswith("please add"):
-        # e.g. "Please add we replaced the router at site X"
         new_data = user_text[10:].strip()
         add_text_to_pinecone(new_data)
         st.session_state.chat_history.append({
@@ -139,11 +121,9 @@ def handle_user_input():
             "content": f"Added to knowledge base: {new_data}"
         })
     else:
-        # Query Pinecone for relevant context
+        # Query Pinecone
         retrieved_texts = query_pinecone(user_text, top_k=3)
         context = "\n".join(retrieved_texts)
-
-        # Build system prompt with that context
         system_prompt = (
             "You are a helpful IT assistant.\n"
             "Below is relevant context from your knowledge base:\n"
@@ -151,11 +131,11 @@ def handle_user_input():
             "Use this info if relevant when answering."
         )
 
-        # Combine with chat history
+        # Build conversation
         conversation = [{"role": "system", "content": system_prompt}]
         conversation.extend(st.session_state.chat_history)
 
-        # GPT call
+        # GPT-4 call
         try:
             response = openai.ChatCompletion.create(
                 model="gpt-4",
@@ -174,7 +154,6 @@ def handle_user_input():
                 "content": f"OpenAI error: {e}"
             })
 
-    # Clear input
     st.session_state["chat_input"] = ""
 
 ##############################################
@@ -183,24 +162,20 @@ def handle_user_input():
 def main_app():
     openai.api_key = st.secrets["openai_api_key"]
 
-    st.title("IT Super Bot (Pinecone Serverless)")
+    st.title("IT Super Bot (Serverless Pinecone)")
 
-    # Display the chat so far
     for msg in st.session_state.chat_history:
         if msg["role"] == "assistant":
-            # Bold, left, spacing
             st.markdown(
                 f"<div style='text-align:left; font-weight:bold; margin:10px 0;'>{msg['content']}</div>",
                 unsafe_allow_html=True
             )
         elif msg["role"] == "user":
-            # Italic, right, spacing
             st.markdown(
                 f"<div style='text-align:right; font-style:italic; margin:10px 0;'>{msg['content']}</div>",
                 unsafe_allow_html=True
             )
 
-    # The text input
     st.text_input(
         "Type your message (or 'Please add...' to store info)",
         key="chat_input",
