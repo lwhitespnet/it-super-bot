@@ -1,8 +1,8 @@
 ##############################################
 # app.py
 # GPT-4 Chat + Pinecone + PDF/TXT
-# Single-click login with no leftover password prompt,
-# even without st.experimental_rerun().
+# Single-click/Enter login with a Streamlit form
+# No leftover password prompt once authenticated
 ##############################################
 
 import streamlit as st
@@ -204,26 +204,20 @@ def main_app():
 def run_app():
     init_session()
 
-    # Create a container for the login UI
-    login_container = st.container()
-
-    # If user not authenticated, show the login inside that container
     if not st.session_state.authenticated:
-        with login_container:
+        # Create a form so user can press Enter
+        with st.form("login_form", clear_on_submit=True):
             st.title("IT Super Bot")
             pwd = st.text_input("Password:", type="password")
-
-            if st.button("Submit"):
+            submitted = st.form_submit_button("Submit")  # user can press Enter or click
+            if submitted:
                 if pwd.strip() == st.secrets["app_password"]:
                     st.session_state.authenticated = True
                 else:
                     st.error("Incorrect password. Try again.")
                     st.stop()
 
-    # If user is authenticated, empty out that container
-    # so the login form is removed from the UI
     if st.session_state.authenticated:
-        login_container.empty()  # remove the login prompt
         main_app()
 
 if __name__ == "__main__":
