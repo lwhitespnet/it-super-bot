@@ -1,8 +1,7 @@
 ##############################################
 # app.py
-# GPT-4 Chat + Pinecone + PDF/TXT
-# Single-click/Enter login with a Streamlit form
-# No leftover password prompt once authenticated
+# GPT-4 Chat + Pinecone (serverless) + PDF/TXT
+# No custom authentication; purely the UI for chat & file uploads.
 ##############################################
 
 import streamlit as st
@@ -12,11 +11,9 @@ from pinecone import Pinecone
 import PyPDF2  # for reading PDFs
 
 ##############################################
-# 0) Session & Password
+# 0) Session & Chat
 ##############################################
 def init_session():
-    if "authenticated" not in st.session_state:
-        st.session_state.authenticated = False
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
 
@@ -25,6 +22,10 @@ def init_session():
 ##############################################
 @st.cache_resource
 def get_pinecone_index():
+    """
+    Create a Pinecone object in serverless mode,
+    referencing your short index name + full host domain from secrets.
+    """
     pc = Pinecone(api_key=st.secrets["PINECONE_API_KEY"])
     index = pc.Index(
         name=st.secrets["PINECONE_INDEX_NAME"],
@@ -33,6 +34,10 @@ def get_pinecone_index():
     return index
 
 def embed_and_upsert(chunks, metadata_prefix=""):
+    """
+    Takes a list of text chunks, embeds each,
+    and upserts to Pinecone with optional doc_name in metadata.
+    """
     index = get_pinecone_index()
     for chunk in chunks:
         resp = openai.Embedding.create(
@@ -54,12 +59,14 @@ def embed_and_upsert(chunks, metadata_prefix=""):
         ])
 
 def add_text_to_pinecone(text: str):
+    """For the 'Please add...' flow: embed single text line."""
     embed_and_upsert([text], metadata_prefix="manual_add")
 
 ##############################################
 # 2) Parsing & Chunking for PDF/TXT
 ##############################################
 def chunk_text(full_text, chunk_size=1500):
+    """Split text into ~chunk_size-character chunks."""
     chunks = []
     start = 0
     while start < len(full_text):
@@ -70,6 +77,10 @@ def chunk_text(full_text, chunk_size=1500):
     return chunks
 
 def parse_file(uploaded_file):
+    """
+    Handle PDF or TXT.
+    Return a list of ~1500-char chunks to embed.
+    """
     ext = uploaded_file.name.lower().split('.')[-1]
 
     if ext == "pdf":
@@ -115,6 +126,7 @@ def handle_user_input():
     if not user_text:
         return
 
+    # Add the user message to the chat
     st.session_state.chat_history.append({"role": "user", "content": user_text})
 
     if user_text.lower().startswith("please add"):
@@ -203,22 +215,7 @@ def main_app():
 ##############################################
 def run_app():
     init_session()
-
-    if not st.session_state.authenticated:
-        # Create a form so user can press Enter
-        with st.form("login_form", clear_on_submit=True):
-            st.title("IT Super Bot")
-            pwd = st.text_input("Password:", type="password")
-            submitted = st.form_submit_button("Submit")  # user can press Enter or click
-            if submitted:
-                if pwd.strip() == st.secrets["app_password"]:
-                    st.session_state.authenticated = True
-                else:
-                    st.error("Incorrect password. Try again.")
-                    st.stop()
-
-    if st.session_state.authenticated:
-        main_app()
+    main_app()
 
 if __name__ == "__main__":
     run_app()
