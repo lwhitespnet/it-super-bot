@@ -1,7 +1,7 @@
 ##############################################
 # app.py
 # GPT-4 Chat + Pinecone (serverless) + PDF/TXT uploads
-# Protected by password
+# Protected by password (no double-submit needed)
 # "Please add..." => upserts text
 # PDF or text file => parse -> chunk -> embed -> Pinecone
 # Chat interface (assistant bold/left, user italic/right)
@@ -26,15 +26,16 @@ def init_session():
 
 def password_gate():
     st.title("IT Super Bot")
-    st.text_input("Password:", type="password", key="input_password")
+    # We read the password from session_state so the user can type and click once
+    pwd = st.text_input("Password:", type="password")
+
     if st.button("Submit"):
-        pwd = st.session_state.input_password.strip()
-        if pwd == st.secrets["app_password"]:
+        # Check the typed password
+        if pwd.strip() == st.secrets["app_password"]:
+            # If correct, set authenticated = True
             st.session_state.authenticated = True
-            st.stop()
         else:
             st.error("Incorrect password. Try again.")
-            st.stop()
 
 ##############################################
 # 1) Pinecone Setup
@@ -107,7 +108,6 @@ def parse_file(uploaded_file):
         full_text = ""
         for page in reader.pages:
             full_text += page.extract_text() + "\n"
-        # chunk
         return chunk_text(full_text)
 
     elif ext == "txt":
@@ -216,7 +216,7 @@ def main_app():
     )
 
     st.write("---")
-    st.subheader("Upload a .pdf or .txt file")
+    st.subheader("Upload a PDF or text file to add it to Pinecone")
 
     # Single uploader that accepts PDF or TXT
     uploaded_file = st.file_uploader("Choose a file", type=["pdf", "txt"])
@@ -238,10 +238,13 @@ def main_app():
 def run_app():
     init_session()
 
+    # If the user hasn't authenticated, show the password gate
     if not st.session_state.authenticated:
         password_gate()
-        st.stop()
-    else:
+
+    # If at this point they are authenticated (or were already),
+    # we show the main interface in the same script run
+    if st.session_state.authenticated:
         main_app()
 
 if __name__ == "__main__":
