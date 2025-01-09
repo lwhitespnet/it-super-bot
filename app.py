@@ -1,7 +1,7 @@
 ##############################################
 # app.py
-# GPT-4 Chat + Pinecone (serverless) + PDF/TXT uploads
-# with a password gate that fully disappears after one correct click
+# GPT-4 Chat + Pinecone (serverless) + PDF/TXT
+# Single-click password login, no st.experimental_rerun()
 ##############################################
 
 import streamlit as st
@@ -20,19 +20,17 @@ def init_session():
         st.session_state.chat_history = []
 
 def password_gate():
-    # Show a login prompt only if user isn't authenticated
+    # If we're still not authenticated, show the login prompt
     st.title("IT Super Bot")
     pwd = st.text_input("Password:", type="password")
 
     if st.button("Submit"):
+        # If correct, set authenticated to True
         if pwd.strip() == st.secrets["app_password"]:
-            # Mark user as authenticated
             st.session_state.authenticated = True
-            # Rerun so the main app is shown immediately, hiding this login prompt
-            st.experimental_rerun()
         else:
+            # If incorrect, show error but do NOT call st.stop()—so user can try again
             st.error("Incorrect password. Try again.")
-            st.stop()  # user can type again in the same pass
 
 ##############################################
 # 1) Pinecone Setup
@@ -218,15 +216,13 @@ def main_app():
 def run_app():
     init_session()
 
-    # If user not yet authenticated, show password gate
+    # If user not authenticated, show password gate
     if not st.session_state.authenticated:
         password_gate()
-        # no st.stop() here, so if they typed correct pass, the script sees
-        # st.session_state.authenticated = True below
-    
-    # If now authenticated, show main UI
+
+    # If they're authenticated (or just got authenticated), show the main UI
     if st.session_state.authenticated:
         main_app()
 
 if __name__ == "__main__":
-    run_app()
+   
