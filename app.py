@@ -1,8 +1,8 @@
 ##############################################
 # app.py
-# GPT-4 Chat + Pinecone (serverless) + PDF/TXT
-# Single-click password login, no st.experimental_rerun()
-# Hides password UI once user is authenticated
+# GPT-4 Chat + Pinecone + PDF/TXT
+# Single-click login with no leftover password prompt,
+# even without st.experimental_rerun().
 ##############################################
 
 import streamlit as st
@@ -19,23 +19,6 @@ def init_session():
         st.session_state.authenticated = False
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
-
-def password_gate():
-    # If user is already authenticated, skip showing any login fields
-    if st.session_state.authenticated:
-        return
-
-    st.title("IT Super Bot")
-    pwd = st.text_input("Password:", type="password")
-
-    if st.button("Submit"):
-        # If correct, mark them authenticated
-        if pwd.strip() == st.secrets["app_password"]:
-            st.session_state.authenticated = True
-        else:
-            # If incorrect, show error and stop the script so user can retry
-            st.error("Incorrect password. Try again.")
-            st.stop()
 
 ##############################################
 # 1) Pinecone Setup
@@ -221,11 +204,26 @@ def main_app():
 def run_app():
     init_session()
 
-    # Show the password prompt if not authenticated
-    password_gate()
+    # Create a container for the login UI
+    login_container = st.container()
 
-    # If user is authenticated (or has just become so), show the main app
+    # If user not authenticated, show the login inside that container
+    if not st.session_state.authenticated:
+        with login_container:
+            st.title("IT Super Bot")
+            pwd = st.text_input("Password:", type="password")
+
+            if st.button("Submit"):
+                if pwd.strip() == st.secrets["app_password"]:
+                    st.session_state.authenticated = True
+                else:
+                    st.error("Incorrect password. Try again.")
+                    st.stop()
+
+    # If user is authenticated, empty out that container
+    # so the login form is removed from the UI
     if st.session_state.authenticated:
+        login_container.empty()  # remove the login prompt
         main_app()
 
 if __name__ == "__main__":
