@@ -1,10 +1,7 @@
 ##############################################
 # app.py
 # GPT-4 Chat + Pinecone (serverless) + PDF/TXT uploads
-# Protected by password (no double-submit needed)
-# "Please add..." => upserts text
-# PDF or text file => parse -> chunk -> embed -> Pinecone
-# Chat interface (assistant bold/left, user italic/right)
+# with a password gate that fully disappears after one correct click
 ##############################################
 
 import streamlit as st
@@ -21,31 +18,27 @@ def init_session():
         st.session_state.authenticated = False
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
-    if "input_password" not in st.session_state:
-        st.session_state.input_password = ""
 
 def password_gate():
+    # Show a login prompt only if user isn't authenticated
     st.title("IT Super Bot")
-    # We read the password from session_state so the user can type and click once
     pwd = st.text_input("Password:", type="password")
 
     if st.button("Submit"):
-        # Check the typed password
         if pwd.strip() == st.secrets["app_password"]:
-            # If correct, set authenticated = True
+            # Mark user as authenticated
             st.session_state.authenticated = True
+            # Rerun so the main app is shown immediately, hiding this login prompt
+            st.experimental_rerun()
         else:
             st.error("Incorrect password. Try again.")
+            st.stop()  # user can type again in the same pass
 
 ##############################################
 # 1) Pinecone Setup
 ##############################################
 @st.cache_resource
 def get_pinecone_index():
-    """
-    Create a Pinecone object in serverless mode,
-    referencing your short index name + full host domain from secrets.
-    """
     pc = Pinecone(api_key=st.secrets["PINECONE_API_KEY"])
     index = pc.Index(
         name=st.secrets["PINECONE_INDEX_NAME"],
@@ -54,10 +47,6 @@ def get_pinecone_index():
     return index
 
 def embed_and_upsert(chunks, metadata_prefix=""):
-    """
-    Takes a list of text chunks, embeds each,
-    and upserts to Pinecone with optional doc_name in metadata.
-    """
     index = get_pinecone_index()
     for chunk in chunks:
         resp = openai.Embedding.create(
@@ -79,14 +68,12 @@ def embed_and_upsert(chunks, metadata_prefix=""):
         ])
 
 def add_text_to_pinecone(text: str):
-    """For the 'Please add...' flow: embed single text line."""
     embed_and_upsert([text], metadata_prefix="manual_add")
 
 ##############################################
 # 2) Parsing & Chunking for PDF/TXT
 ##############################################
 def chunk_text(full_text, chunk_size=1500):
-    """Split text into ~chunk_size-character chunks."""
     chunks = []
     start = 0
     while start < len(full_text):
@@ -97,10 +84,6 @@ def chunk_text(full_text, chunk_size=1500):
     return chunks
 
 def parse_file(uploaded_file):
-    """
-    Handle PDF or TXT.
-    Return a list of ~1500-char chunks to embed.
-    """
     ext = uploaded_file.name.lower().split('.')[-1]
 
     if ext == "pdf":
@@ -122,11 +105,11 @@ def parse_file(uploaded_file):
 # 3) Chat Logic
 ##############################################
 def query_pinecone(query: str, top_k=3):
-    emb_resp = openai.Embedding.create(
+    resp = openai.Embedding.create(
         model="text-embedding-ada-002",
         input=[query]
     )
-    query_emb = emb_resp["data"][0]["embedding"]
+    query_emb = resp["data"][0]["embedding"]
 
     index = get_pinecone_index()
     results = index.query(
@@ -142,11 +125,10 @@ def query_pinecone(query: str, top_k=3):
     return retrieved_texts
 
 def handle_user_input():
-    user_text = st.session_state["chat_input"].strip()
+    user_text = st.session_state.get("chat_input", "").strip()
     if not user_text:
         return
 
-    # Add the user message to the chat
     st.session_state.chat_history.append({"role": "user", "content": user_text})
 
     if user_text.lower().startswith("please add"):
@@ -192,7 +174,6 @@ def handle_user_input():
 ##############################################
 def main_app():
     openai.api_key = st.secrets["openai_api_key"]
-
     st.title("IT Super Bot")
 
     # Chat interface
@@ -218,7 +199,6 @@ def main_app():
     st.write("---")
     st.subheader("Upload a PDF or text file to add it to Pinecone")
 
-    # Single uploader that accepts PDF or TXT
     uploaded_file = st.file_uploader("Choose a file", type=["pdf", "txt"])
     if uploaded_file is not None:
         doc_name = st.text_input("Optional doc name (for metadata):", "")
@@ -238,12 +218,13 @@ def main_app():
 def run_app():
     init_session()
 
-    # If the user hasn't authenticated, show the password gate
+    # If user not yet authenticated, show password gate
     if not st.session_state.authenticated:
         password_gate()
-
-    # If at this point they are authenticated (or were already),
-    # we show the main interface in the same script run
+        # no st.stop() here, so if they typed correct pass, the script sees
+        # st.session_state.authenticated = True below
+    
+    # If now authenticated, show main UI
     if st.session_state.authenticated:
         main_app()
 
