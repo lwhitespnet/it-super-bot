@@ -1,7 +1,7 @@
 ##############################################
 # app.py
 # GPT-4 Chat + Pinecone (serverless) + PDF/TXT
-# No custom authentication; purely the UI for chat & file uploads.
+# With 200-char overlap & top_k=8 for better retrieval
 ##############################################
 
 import streamlit as st
@@ -65,21 +65,30 @@ def add_text_to_pinecone(text: str):
 ##############################################
 # 2) Parsing & Chunking for PDF/TXT
 ##############################################
-def chunk_text(full_text, chunk_size=1500):
-    """Split text into ~chunk_size-character chunks."""
+def chunk_text(full_text, chunk_size=1500, overlap=200):
+    """
+    Splits the text into chunks of `chunk_size` characters,
+    overlapping each chunk by `overlap` characters.
+    """
     chunks = []
     start = 0
-    while start < len(full_text):
+    text_length = len(full_text)
+
+    while start < text_length:
         end = start + chunk_size
         chunk = full_text[start:end]
         chunks.append(chunk.strip())
-        start = end
+
+        # Move the start forward by (chunk_size - overlap)
+        # so that the next chunk overlaps by `overlap` characters.
+        start += (chunk_size - overlap)
+
     return chunks
 
 def parse_file(uploaded_file):
     """
     Handle PDF or TXT.
-    Return a list of ~1500-char chunks to embed.
+    Return a list of chunked text with overlap=200, chunk_size=1500.
     """
     ext = uploaded_file.name.lower().split('.')[-1]
 
@@ -88,12 +97,13 @@ def parse_file(uploaded_file):
         full_text = ""
         for page in reader.pages:
             full_text += page.extract_text() + "\n"
-        return chunk_text(full_text)
+        # chunk with overlap
+        return chunk_text(full_text, chunk_size=1500, overlap=200)
 
     elif ext == "txt":
         raw_bytes = uploaded_file.read()
         text_str = raw_bytes.decode("utf-8", errors="ignore")
-        return chunk_text(text_str)
+        return chunk_text(text_str, chunk_size=1500, overlap=200)
 
     else:
         return []
@@ -101,7 +111,10 @@ def parse_file(uploaded_file):
 ##############################################
 # 3) Chat Logic
 ##############################################
-def query_pinecone(query: str, top_k=3):
+def query_pinecone(query: str):
+    """
+    Embeds the query and retrieves top 8 matches from Pinecone.
+    """
     resp = openai.Embedding.create(
         model="text-embedding-ada-002",
         input=[query]
@@ -109,9 +122,10 @@ def query_pinecone(query: str, top_k=3):
     query_emb = resp["data"][0]["embedding"]
 
     index = get_pinecone_index()
+    # top_k=8 to get more chunks for improved retrieval
     results = index.query(
         vector=query_emb,
-        top_k=top_k,
+        top_k=8,
         include_metadata=True
     )
 
@@ -137,7 +151,7 @@ def handle_user_input():
             "content": f"Added to knowledge base: {new_data}"
         })
     else:
-        retrieved_texts = query_pinecone(user_text, top_k=3)
+        retrieved_texts = query_pinecone(user_text)
         context = "\n".join(retrieved_texts)
         system_prompt = (
             "You are a helpful IT assistant.\n"
