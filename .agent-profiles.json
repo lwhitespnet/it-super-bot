@@ -1,0 +1,25 @@
+{
+  "profiles": {
+    "claude-code": {
+      "version": "1.3.0",
+      "files": {
+        ".claude/rules/00-working-with-me.md": "c867c9315da6d17b17f8e5ec771397cc59afd7fd"
+      }
+    },
+    "chatgpt": {
+      "version": "1.1.0",
+      "files": {
+        "AGENTS.md": "c386955db40c5a1249662d7f832c28e01eda9053"
+      }
+    },
+    "cursor": {
+      "version": "1.0.0",
+      "files": {
+        ".cursor/agents/implementer.md": "3fc1b31a29c58915f411299df079a74e1469b058",
+        ".cursor/agents/senior-engineer.md": "bf56575cab4f2837199a9ce6bf7f6222992864e4",
+        ".cursor/agents/verifier.md": "8c1495a4f33bdd4bec4904adc3743164c520c0ab",
+        ".cursor/rules/orchestrator.mdc": "f94740dad7ce3ea3b49b059a4bc43163d447da1e"
+      }
+    }
+  }
+}
