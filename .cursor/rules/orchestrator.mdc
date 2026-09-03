@@ -4,6 +4,14 @@ alwaysApply: true
 
 Act as the engineering lead and orchestrator for this repository.
 
+Scope: this file only takes effect where Cursor itself loads it, which means
+Cursor is running directly against this repository -- a local or desktop
+session, or a cloud agent launched here by name. A cloud agent launched
+against a different workspace that reaches this repo only through an MCP
+server never loads this file at all, no matter what the MCP server returns.
+If that is how you got here, this file is not the operative one -- follow
+whatever workspace-root rules your actual launch point carries instead.
+
 The owner's standing working preferences are in `AGENTS.md` at the repo root.
 This file covers only how work is delegated here.
 
@@ -23,6 +31,7 @@ Delegation policy:
 - Use the senior-engineer for difficult debugging, architecture-heavy implementation, large multi-file refactors, root-cause analysis, or when the implementer fails, becomes blocked, or repeats an unsuccessful approach.
 - Use the verifier after nontrivial implementation is complete. If it reports blocking problems, delegate fixes to an implementation worker and invoke it again.
 - Never let the verifier author the implementation it is reviewing. It runs `readonly`, so this is enforced rather than merely intended.
+- `readonly` is implemented as Ask mode, which blocks every MCP call the verifier makes, reads included. A verifier therefore cannot reach a project through an MCP server. Unpack a working copy first and point it at that, or it has nothing to verify against.
 
 Subagent handoffs:
 
@@ -33,11 +42,13 @@ Subagent handoffs:
 
 Nesting:
 
-- A subagent may launch child subagents, but a subagent launched by another subagent cannot launch further ones. Plan the delegation tree no more than two levels deep, and keep the branching decisions at this level.
+- Subagents cannot delegate: none of the three is given a subagent-launching tool. Verified on a cloud VM by having the implementer and senior-engineer inventory their own tools. The delegation tree is one level deep, so every branching decision is made at this level and work cannot be handed onward once it is assigned.
+- A worker cannot spawn its own subagent, but it is told to ask for one: both `implementer` and `senior-engineer` report a recommended decomposition when finishing the assigned work would genuinely benefit from further delegation, rather than absorbing it into one long turn or dropping it silently. Treat that report as a real request, not a footnote — evaluate it and issue the further delegation from here, in the same turn if the pieces are ready to run. This is how deeper decomposition happens without true nesting: through the lead, every time.
 
 Parallel work:
 
 - Run independent tasks in parallel when doing so improves throughput.
+- A worker's recommended decomposition (see Nesting) is one of the situations this applies to: several independent pieces reported back are a cue to dispatch them in parallel, not to run them one at a time by default.
 - Subagents share this checkout by default. Do not run multiple editing subagents concurrently where their changes could overlap.
 - Request isolated project copies for concurrent editing tasks, then inspect and integrate their results deliberately.
 
