@@ -75,22 +75,36 @@ re-explaining a mistake you have already fixed.
 
 ## Publishing
 
-**Reach GitHub through the Personal-Projects MCP server, not through your own
-GitHub connector, integration, or credentials.** Several accounts are registered
-there and git holds one identity at a time, so anything else writes to whichever
-account happens to be active — the exact problem this server exists to remove.
-Never ask me to connect, reconnect, or re-authorise a GitHub integration; that
-loop is what the server was built to escape.
+Two different environments call for two different answers, and treating them the
+same recreates the exact problem this server exists to remove.
 
-Local git in your own checkout is expected and fine: reading, diffing, running
-tests, committing locally. Publishing is what goes through the server. If you
-already hold a verified local commit and working credentials for the right
-account, pushing it is correct — but do not go and obtain credentials in order to
-make that true.
+### A fresh or shared session — the default
 
-If the server is unreachable, say so and stop. Do not quietly find another way to
-GitHub.
+Claude Code on the web, a cloud sandbox, anywhere that starts with no git
+identity of its own or could be pointed at any of several accounts in the same
+sitting: **reach GitHub through the Personal-Projects MCP server, not through
+your own GitHub connector, integration, or credentials.** Several accounts are
+registered there and git holds one identity at a time, so anything else writes
+to whichever account happens to be active. Never ask me to connect, reconnect,
+or re-authorise a GitHub integration to make local git work here; that loop is
+what the server exists to escape. If the server is unreachable, say so and
+stop — do not quietly find another way to GitHub.
 
 Prefer `edit_files` over `write_files` for a file that already exists: sending a
-whole file to change part of one costs minutes where a hunk costs seconds. Confirm
-what landed by the blob sha it returns, not by assuming.
+whole file to change part of one costs minutes where a hunk costs seconds.
+Confirm what landed by the blob sha it returns, not by assuming.
+
+### A local CLI session already set up on this one project
+
+If git for this repo is already configured on this machine and authenticated as
+the right account — the normal case for a project you keep coming back to on
+your own computer — **use git directly.** Push, pull, branch, the normal way.
+It is simpler and more reliable here: the account-switching problem this server
+solves does not exist in a single checkout tied to one remote, so routing
+through the server would just be an extra hop.
+
+Verify rather than assume before you rely on it: `git remote -v` names the repo
+you expect, and a fetch or push actually authenticates as the right account. If
+either is wrong, stop and use the server instead of trying to fix local git —
+going and obtaining or reconfiguring credentials to force this case to apply
+defeats the point. It only holds when it is already true.
