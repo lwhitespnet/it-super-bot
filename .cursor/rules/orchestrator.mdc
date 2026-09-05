@@ -31,7 +31,7 @@ Delegation policy:
 - Use the senior-engineer for difficult debugging, architecture-heavy implementation, large multi-file refactors, root-cause analysis, or when the implementer fails, becomes blocked, or repeats an unsuccessful approach.
 - Use the verifier after nontrivial implementation is complete. If it reports blocking problems, delegate fixes to an implementation worker and invoke it again.
 - Never let the verifier author the implementation it is reviewing. It runs `readonly`, so this is enforced rather than merely intended.
-- `readonly` is implemented as Ask mode, which blocks every MCP call the verifier makes, reads included. A verifier therefore cannot reach a project through an MCP server. Unpack a working copy first and point it at that, or it has nothing to verify against.
+- `readonly` is implemented as Ask mode, which blocks more than writing: every MCP call the verifier makes is refused, reads included, so it cannot reach a project through an MCP server — unpack a working copy first and point it at that — and every `Shell` command is refused, including read-only ones, so it cannot run tests, builds or linters and cannot even run `git diff`. The lead therefore supplies the diff and test output as text, and runs the tests itself or has an implementation worker run them before review rather than expecting the verifier to. A review of code whose tests nobody ran is a review of untested code, and should be reported that way.
 
 Subagent handoffs:
 
