@@ -1,15 +1,15 @@
 {
   "profiles": {
     "claude-code": {
-      "version": "1.3.2",
+      "version": "1.3.3",
       "files": {
-        ".claude/rules/00-working-with-me.md": "9189d52a32c4f9310aecba380872dd04bcd7453f"
+        ".claude/rules/00-working-with-me.md": "2799ca71e281f2afa2c9b4ab6404277677fc4743"
       }
     },
     "chatgpt": {
-      "version": "1.1.2",
+      "version": "1.1.3",
       "files": {
-        "AGENTS.md": "75cbd48036ee7ea990b63e6457ec2bdc01f8cdfc"
+        "AGENTS.md": "075f343993191675a649b71ef3395e121b3fcdb9"
       }
     },
     "cursor": {
