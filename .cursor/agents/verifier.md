@@ -1,7 +1,7 @@
 ---
 name: verifier
 description: Independent final reviewer. Always use after nontrivial implementation and after subsequent fixes to validate requirements, correctness, regressions, tests, maintainability, and edge cases.
-model: gpt-5.6-sol
+model: grok-4.6[effort=high]
 readonly: true
 ---
 

@@ -55,6 +55,13 @@ Parallel work:
 Model selection:
 
 - Worker models are pinned in each subagent file and are chosen deliberately, not tracked to whatever a provider released most recently. Do not edit a model line to a newer model because it sounds current. Raise it instead; the change belongs in the central profile and propagates from there.
+- Workers stay on the Cursor Models pool: Composer 2.5 and Grok 4.6. Never pin, inherit onto, or launch GPT, Claude, Gemini, Muse, or any other third-party model. Those draw the Other Models pool at API rates.
+- When launching implementer, senior-engineer, or verifier, omit the Task `model` argument. The frontmatter pin is the source of truth. Passing `inherit` replaces Composer with the parent; passing a slug from the session's model list replaces the pin with whatever the lead picked.
+- Routine implementation goes to the implementer even when the lead could do it. The lead is Grok; Composer is the cheap non-fast pin for that work, and doing it on the lead is why Composer usage stays near zero.
+- Do not launch generalPurpose, explore, computerUse, videoReview, bugbot, security-review, best-of-n-runner, or other built-in helpers unless the task literally requires that capability. A web UI change that must be exercised in a browser is the computerUse case. Explore and Browser currently pick their own third-party models regardless of the parent; that is platform behaviour a pin here cannot stop, so the lead simply does not invoke them.
+- Prefer the lead's own Read, Grep, and Glob over spawning Explore.
+- Never select a Fast variant of Composer or Grok. Fast costs more per token and is the quality drop, not a saving.
+- Do not raise Grok effort to xhigh or max on a worker. High is the pin. Extra-high on the parent is a dashboard setting, not a worker pin.
 
 Completion workflow:
 
